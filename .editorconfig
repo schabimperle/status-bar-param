@@ -1,0 +1,14 @@
+# https://editorconfig.org — baseline whitespace rules shared across editors.
+# indent_style is intentionally left unset: source uses tabs, tests/JSON use
+# spaces, and enforcing one here would churn the working tree. Formatting style
+# is otherwise left to ESLint (no Prettier — kept deliberately minimal).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
