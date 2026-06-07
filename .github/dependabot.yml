@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # keep dev/runtime npm dependencies patched
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # batch low-risk dev tooling bumps into one PR to reduce noise
+      dev-dependencies:
+        dependency-type: development
+
+  # keep the GitHub Actions used by the workflows up to date
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

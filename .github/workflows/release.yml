@@ -1,0 +1,78 @@
+name: Release
+
+# Publishes the extension when you push a version tag, e.g.:
+#   npm version minor          # bumps package.json, commits, creates tag v1.7.0
+#   git push --follow-tags     # pushes the commit AND the tag -> triggers this workflow
+#
+# The version published is whatever is in package.json at the tagged commit;
+# `npm version` keeps the tag (v1.7.0) and package.json (1.7.0) in sync.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # required to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Verify tag matches package.json version
+        env:
+          # pass the tag via env (not shell interpolation) so it can't inject commands
+          TAG: ${{ github.ref_name }}
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "Tag $TAG does not match package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Run the same fast, high-signal gates CI enforces, so a tag pushed from a
+      # commit that never passed CI can't publish on green unit tests alone. The
+      # heavier integration/remote smoke jobs stay in ci.yml (they need xvfb/SSH);
+      # these three plus the packaging step below cover the release-critical checks.
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test
+        run: npm run test:coverage # headless Jest unit tests + coverage ratchet, no display needed
+
+      - name: Package extension
+        run: npx @vscode/vsce package --out extension.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --packagePath extension.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish extension.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # pass the tag through an env var instead of interpolating
+          # ${{ github.ref_name }} straight into the shell command, so a tag
+          # containing shell metacharacters cannot inject commands.
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" extension.vsix --title "$TAG" --generate-notes

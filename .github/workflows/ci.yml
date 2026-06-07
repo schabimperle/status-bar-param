@@ -1,0 +1,143 @@
+name: CI
+
+# Lints and tests on every push to the main branches and on pull requests,
+# so problems are caught before you cut a release tag.
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+  # the remote job below was previously its own workflow with a dispatch trigger;
+  # preserved here so it can still be run on demand
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # headless Jest unit tests (jest-mock-vscode), so no xvfb/display needed;
+      # --coverage enforces the thresholds in jest.config.js
+      - name: Test
+        run: npm run test:coverage
+
+  # Prettier formatting check. Platform-independent and sub-second, so it runs
+  # once on a single OS rather than across the matrix (which would also risk
+  # spurious CRLF/LF failures on Windows). Catches drift the lint job doesn't:
+  # eslint-config-prettier only disables conflicting ESLint rules, it doesn't
+  # enforce formatting.
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+  # Real-host smoke test against the genuine vscode API via @vscode/test-electron.
+  # Runs headlessly under xvfb on a single OS (it just needs to download and boot
+  # one VS Code build), so it's a dedicated job rather than part of the matrix.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The pretest:integration hook runs scripts/ensure-vscode-test-libs.js,
+      # which installs the GTK/NSS libraries the VS Code (Electron) build needs
+      # if they're missing (a fast no-op on this runner, which already has them).
+      # xvfb provides the emulated display. Same mechanism works locally.
+      - name: Integration smoke tests
+        run: xvfb-run -a npm run test:integration
+
+  # Real remote-window smoke test: a local VS Code connected to localhost over SSH,
+  # so the extension runs in a genuine remote extension host while user data stays
+  # local (the split the user-tasks fix targets) — the only layer that exercises
+  # that. Heavier than the other jobs (Remote-SSH install + server provisioning),
+  # so it's a dedicated job rather than folded into one of the others.
+  remote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up passwordless SSH to localhost
+        run: bash scripts/setup-ssh-localhost.sh
+
+      # ensure-vscode-test-libs (via pretest:integration) installs the GTK/NSS
+      # libraries Electron needs; xvfb provides the emulated display.
+      - name: Remote smoke test
+        # Pin a VS Code build whose server bundles Node 20. The newest server hits a
+        # `navigator is now a global` PendingMigrationError under the runner's Node
+        # 24, which crashes the remote extension host. Revisit when the server build
+        # is Node-24-clean.
+        env:
+          SBP_VSCODE_VERSION: 1.96.2
+        run: xvfb-run -a npm run test:integration:remote
+
+  # Packaging dry-run: prove `vsce package` succeeds (manifest + .vscodeignore are
+  # valid and nothing essential is excluded) so a release can't break at publish
+  # time. release.yml runs the real tag-triggered publish; this only builds the vsix.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package (vsce dry-run)
+        run: npx @vscode/vsce package --out status-bar-param.vsix
