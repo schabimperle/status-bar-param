@@ -4,7 +4,7 @@ All notable changes to the "status-bar-param" extension will be documented in th
 
 ## [1.6.0]
 
-- Added parsing the 'initialSelection' value from the argument section of parameters., which can be used to set an initial selection.
+- Added parsing the 'initialSelection' value from the argument section of parameters, which can be used to set an initial selection.
 - Fixed not parsing the inputs section of the 'launch' configuration of .code-workspace files.
 
 ## [1.5.0]
@@ -17,12 +17,12 @@ All notable changes to the "status-bar-param" extension will be documented in th
 - Added retrieving values from shell commands.
 - Added option for multiple selection.
 - Added tree view (tab in file explorer).
-- Added commands to....
+- Added commands to:
     - ... Edit a parameter.
     - ... Copy the retrieval string for a parameter.
     - ... Delete a parameter.
     - ... Select a parameter.
-- Added json schema validation for input sections .
+- Added json schema validation for input sections.
 - Minor improvements and bugfixes.
     - Preselection of the last picked value in selection list.
     - Made adding sample task optional.
