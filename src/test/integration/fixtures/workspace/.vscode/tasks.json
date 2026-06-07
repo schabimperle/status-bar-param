@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "fruit",
+            "type": "command",
+            "command": "statusBarParam.get.fruit",
+            "args": ["apple", "banana"]
+        },
+        {
+            "id": "labelled",
+            "type": "command",
+            "command": "statusBarParam.get.labelled",
+            "args": {
+                "values": [
+                    { "value": "v1", "displayValue": "One" },
+                    "v2"
+                ]
+            }
+        },
+        {
+            "id": "shellfruit",
+            "type": "command",
+            "command": "statusBarParam.get.shellfruit",
+            "args": { "shellCmd": "echo cat; echo dog" }
+        }
+    ]
+}
