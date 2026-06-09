@@ -1,163 +1,169 @@
-import { workspace, ExtensionContext, window, commands, Uri, WorkspaceFolder, QuickPickItem } from 'vscode';
+import { workspace, ExtensionContext, window, commands, env, EventEmitter, Uri, WorkspaceFolder } from 'vscode';
 import { JsonFile } from './jsonFile';
 import { Strings } from './strings';
 import { Param } from './param';
-import { ParameterProvider } from './parameterProvider';
+import { ParameterProvider, type TreeChangeEmitter } from './parameterProvider';
+import { ExtensionConfig } from './config';
+import { onAddParam, onCopyCmd, onDelete, onEdit, onReset, onSelect } from './commands';
+import * as log from './log';
 
-const jsonFiles: JsonFile[] = [];
-const workspaceInputFiles = ['.vscode/tasks.json', '.vscode/launch.json'];
-let extensionContext: ExtensionContext;
-let showNames: boolean;
-let showSelections: boolean;
-let priority = 100;
+const WORKSPACE_INPUT_FILES = ['.vscode/tasks.json', '.vscode/launch.json'];
 
-export function getExtensionContext() {
-	return extensionContext;
+// Activation-time state and wiring; command/listener bodies delegate to commands.ts.
+class StatusBarParam {
+    private readonly jsonFiles: JsonFile[] = [];
+    private readonly config: ExtensionConfig;
+    // tree-view change emitter, injected into the provider and every JsonFile/Param
+    // so they can request a refresh without reaching for global state
+    private readonly changeEmitter: TreeChangeEmitter = new EventEmitter();
+    // status bar priority (higher = further left), decremented per file so later
+    // files sort after earlier ones. May go negative, which VS Code handles fine.
+    private nextPriority = 100;
+
+    constructor(private readonly context: ExtensionContext) {
+        this.config = new ExtensionConfig(context);
+    }
+
+    activate() {
+        log.debug('activate');
+
+        // add disposables to the context array to be disposed at extension shutdown
+        this.context.subscriptions.push(
+            // listen for extension configuration changes
+            workspace.onDidChangeConfiguration((e) => {
+                log.debug('onDidChangeConfiguration');
+                if (e.affectsConfiguration(Strings.EXTENSION_ID)) {
+                    this.refresh();
+                }
+            }),
+
+            // global commands
+            commands.registerCommand(Strings.COMMAND_ADD, (jsonFile?: JsonFile) => onAddParam(this.jsonFiles, jsonFile)),
+            commands.registerCommand(Strings.COMMAND_RESET_SELECTIONS, () => onReset(this.config, this.jsonFiles)),
+
+            // param commands (fall back to a picker when invoked without a param)
+            this.createParamCommand(Strings.COMMAND_SELECT, onSelect),
+            this.createParamCommand(Strings.COMMAND_EDIT, onEdit),
+            this.createParamCommand(Strings.COMMAND_COPY_CMD, onCopyCmd),
+            this.createParamCommand(Strings.COMMAND_DELETE, onDelete),
+
+            // listen for changes of workspace folders
+            workspace.onDidChangeWorkspaceFolders((e) => {
+                e.added.forEach((folder) => this.addWorkspaceFolder(folder));
+                e.removed.forEach((folder) => this.removeWorkspaceFolder(folder));
+                this.changeEmitter.fire();
+            }),
+
+            // dispose the change emitter on shutdown
+            this.changeEmitter,
+
+            // re-evaluate once trusted: command params skipped while untrusted now run
+            workspace.onDidGrantWorkspaceTrust(() => {
+                log.debug('onDidGrantWorkspaceTrust');
+                this.jsonFiles.forEach((jsonFile) => jsonFile.update());
+            }),
+        );
+        // listen for changes of the global user tasks.json
+        this.addJsonFile(this.getUserTasksUri());
+        // listen for changes of the .code-workspace file
+        if (workspace.workspaceFile && workspace.workspaceFile.scheme !== 'untitled') {
+            this.addJsonFile(workspace.workspaceFile);
+        }
+
+        // init workspace
+        workspace.workspaceFolders?.forEach((folder) => this.addWorkspaceFolder(folder));
+
+        // register status bar param tab in file explorer
+        this.context.subscriptions.push(window.registerTreeDataProvider(Strings.EXTENSION_ID, new ParameterProvider(this.jsonFiles, this.changeEmitter)));
+    }
+
+    dispose() {
+        log.debug('deactivate');
+        this.jsonFiles.forEach((jsonFile) => jsonFile.dispose());
+    }
+
+    // a param command that prompts for a param when invoked without one (e.g. from
+    // the command palette instead of a tree item)
+    private createParamCommand(commandString: string, cb: (param: Param) => unknown) {
+        return commands.registerCommand(commandString, async (param?: Param) => {
+            param ??= await this.pickParam();
+            if (param) {
+                cb(param);
+            }
+        });
+    }
+
+    private async pickParam(): Promise<Param | undefined> {
+        const items = this.jsonFiles
+            .flatMap((jsonFile) => jsonFile.params)
+            .map((param) => ({
+                label: `$(${param.getIcon().id}) ${param.id}`,
+                description: param.onGet(),
+                param,
+            }));
+        const res = await window.showQuickPick(items, {
+            placeHolder: 'Select a parameter.',
+            // match the other prompts: a focus change shouldn't silently cancel the pick
+            ignoreFocusOut: true,
+        });
+        return res?.param;
+    }
+
+    private addWorkspaceFolder(workspaceFolder: WorkspaceFolder) {
+        log.debug('addWorkspaceFolder', workspaceFolder.name);
+        WORKSPACE_INPUT_FILES.forEach((relativePath) => {
+            const jsonFile = JsonFile.createFromPathInsideWorkspace(this.nextPriority--, workspaceFolder, relativePath, this.config, this.changeEmitter);
+            this.jsonFiles.push(jsonFile);
+        });
+    }
+
+    private addJsonFile(path: Uri) {
+        log.debug('addJsonFile', path.fsPath);
+        const jsonFile = JsonFile.createFromPathOutsideWorkspace(this.nextPriority--, path, this.config, this.changeEmitter);
+        this.jsonFiles.push(jsonFile);
+    }
+
+    private removeWorkspaceFolder(workspaceFolder: WorkspaceFolder) {
+        log.debug('removeWorkspaceFolder', workspaceFolder.name);
+        // match by uri, not identity: the removed event may not carry the stored
+        // reference, and a mismatch would leak its watchers
+        const removedUri = workspaceFolder.uri.toString();
+        for (let i = this.jsonFiles.length - 1; i >= 0; i--) {
+            if (this.jsonFiles[i].workspaceFolder?.uri.toString() === removedUri) {
+                this.jsonFiles[i].dispose();
+                this.jsonFiles.splice(i, 1);
+            }
+        }
+    }
+
+    // reload settings and, if they changed, re-render all params
+    private refresh() {
+        log.debug('refresh');
+        if (this.config.loadSettings()) {
+            this.jsonFiles.forEach((jsonFile) => jsonFile.update());
+        }
+    }
+
+    // URI of VS Code's user-level (global) tasks.json. Locally it sits next to the
+    // extension's global storage; in a remote window its real path is unresolvable
+    // here, so return a `vscode-userdata` placeholder routed through the workbench
+    // (see JsonFile.useDocumentIO).
+    private getUserTasksUri(): Uri {
+        if (env.remoteName) {
+            return Uri.from({ scheme: 'vscode-userdata', path: '/tasks.json' });
+        }
+        return Uri.joinPath(this.context.globalStorageUri, '../../tasks.json');
+    }
 }
 
-export function getShowNames() {
-	return showNames;
-}
-
-export function getShowSelections() {
-	return showSelections;
-}
+let extension: StatusBarParam | undefined;
 
 export function activate(context: ExtensionContext) {
-	console.debug('activate');
-	extensionContext = context;
-
-	// init extension configuration
-	configurationChanged();
-
-	// add disposables to the context array to be disposed at extension shutdown
-	context.subscriptions.push(
-
-		// listen for extension configuration changes
-		workspace.onDidChangeConfiguration(e => {
-			console.debug('onDidChangeConfiguration');
-			if (e.affectsConfiguration(Strings.EXTENSION_ID)) {
-				configurationChanged();
-			}
-		}),
-
-		// add command for creation of a parameter
-		commands.registerCommand(Strings.COMMAND_ADD, addPramToJson),
-		// add command for selection of a value of a parameter
-		createParamCommand(Strings.COMMAND_SELECT, (param) => param.onSelect()),
-		// add command for editing of a parameter
-		createParamCommand(Strings.COMMAND_EDIT, (param) => param.onEdit()),
-		// add command for editing of a parameter
-		createParamCommand(Strings.COMMAND_COPY_CMD, (param) => param.onCopyCmd()),
-		// add command for deletion of a parameter
-		createParamCommand(Strings.COMMAND_DELETE, (param) => param.onDelete()),
-
-		// listen for changes of workspace folders
-		workspace.onDidChangeWorkspaceFolders((e) => {
-			e.added.forEach(workspaceFolder => addWorkspaceFolder(workspaceFolder));
-			e.removed.forEach(workspaceFolder => removeWorkspaceFolder(workspaceFolder));
-			ParameterProvider.onDidChangeTreeDataEmitter.fire();
-		})
-	);
-	// listen for changes of the .code-workspace file
-	if (workspace.workspaceFile && workspace.workspaceFile.scheme !== 'untitled') {
-		addJsonFile(workspace.workspaceFile);
-	}
-	// init workspace
-	workspace.workspaceFolders?.forEach((workspaceFolder) => addWorkspaceFolder(workspaceFolder));
-
-	// register status bar param tab in file explorer
-	window.registerTreeDataProvider(Strings.EXTENSION_ID, new ParameterProvider(jsonFiles));
+    extension = new StatusBarParam(context);
+    extension.activate();
 }
 
-function createParamCommand(commandString: string, cb: (param: Param) => any) {
-	return commands.registerCommand(commandString, async (param?: Param) => {
-		if (!param) {
-			const items = jsonFiles.map(jsonFile => jsonFile.params).reduce((a, b) => a.concat(b)).map(param => {
-				return {
-					label: `$(${Param.getIcon(param).id}) ${param.input.id}`,
-					description: param.onGet(),
-					param
-				};
-			});
-			const res: any = await window.showQuickPick(items, {
-				placeHolder: "Select a parameter.",
-			});
-			param = res?.param;
-		}
-		if (param) {
-			cb(param);
-		}
-	});
-}
-
-function addWorkspaceFolder(workspaceFolder: WorkspaceFolder) {
-	console.debug('addWorkspaceFolder', workspaceFolder.name);
-	workspaceInputFiles.forEach(relativePath => {
-		const jsonFile = JsonFile.FromInsideWorkspace(priority--, workspaceFolder, relativePath);
-		jsonFiles.push(jsonFile);
-	});
-}
-
-function addJsonFile(path: Uri) {
-	console.debug('addJsonFile', path.toString());
-	const jsonFile = JsonFile.FromOutsideWorkspace(priority--, path);
-	jsonFiles.push(jsonFile);
-}
-
-function configurationChanged() {
-	console.debug('configurationChanged');
-	const currShowNames = workspace.getConfiguration(Strings.EXTENSION_ID).get<boolean>('showNames', false);
-	const currShowSelection = workspace.getConfiguration(Strings.EXTENSION_ID).get<boolean>('showSelections', true);
-
-	if (showNames !== currShowNames || showSelections !== currShowSelection) {
-		showNames = currShowNames;
-		showSelections = currShowSelection;
-		jsonFiles.forEach(jsonFile => jsonFile.update());
-	}
-}
-
-function removeWorkspaceFolder(workspaceFolder: WorkspaceFolder) {
-	console.debug('removeWorkspaceFolder', workspaceFolder.name);
-	jsonFiles.forEach(jsonFile => {
-		if (jsonFile.workspaceFolder === workspaceFolder) {
-			jsonFile.dispose();
-		}
-	});
-}
-
-// this method is called when your extension is deactivated
 export function deactivate() {
-	console.debug('deactivate');
-	jsonFiles.forEach(jsonFile => jsonFile.dispose());
-}
-
-async function addPramToJson(jsonFile?: JsonFile) {
-	console.debug('addPramToJson');
-	// check if there is a workspace where a tasks.json can be written
-	if (!jsonFile) {
-		if (jsonFiles.length === 0) {
-			window.showWarningMessage('You need to open a folder or workspace first!');
-		} else if (jsonFiles.length === 1) {
-			jsonFile = jsonFiles[0];
-		} else {
-			const items: QuickPickItem[] = jsonFiles.map(jsonFile => {
-				return {
-					label: jsonFile.getFileName(),
-					description: jsonFile.workspaceFolder?.name,
-					jsonFile
-				};
-			});
-			const res: any = await window.showQuickPick(items, {
-				placeHolder: "Select the file to store the input parameter in.",
-			});
-			if (res) {
-				jsonFile = res.jsonFile;
-			}
-		}
-		if (!jsonFile) {
-			return;
-		}
-	}
-	jsonFile.createParam();
+    extension?.dispose();
+    extension = undefined;
 }

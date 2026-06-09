@@ -1,144 +1,153 @@
-import { env, commands, Disposable, Range, StatusBarAlignment, StatusBarItem, ThemeColor, ThemeIcon, Uri, window, workspace, QuickPickItem } from 'vscode';
-import * as ext from './extension';
-import { exec } from 'child_process';
-import * as path from 'path';
+import { commands, Disposable, Range, StatusBarAlignment, StatusBarItem, ThemeColor, ThemeIcon, window, workspace } from 'vscode';
+import { JSONPath } from 'jsonc-parser';
 import { Strings } from './strings';
-import { ParameterProvider } from './parameterProvider';
-import * as jsonc from 'jsonc-parser';
 import { JsonFile } from './jsonFile';
+import { ValuesDelegate } from './valuesDelegate';
+import { DisplayableValue, Options } from './schemas';
+import { ExtensionConfig } from './config';
 
 /**
- * Abstract Param base class
+ * A single status-bar parameter: owns its `StatusBarItem`, registers the
+ * `statusBarParam.get.<id>` retrieval command, and persists/restores the selected
+ * value(s) in workspace state. Value resolution is delegated to a {@link ValuesDelegate}
+ * (static array vs. shell command). One Param is rebuilt per parse of its JsonFile.
  */
-export interface ParamOptions {
-    canPickMany?: boolean;
-    showName?: boolean;
-    showSelection?: boolean;
-    initialSelection?: string | string[];
-}
-interface ParamInput {
-    id: string,
-    command: string,
-    args: ParamOptions
-}
-export abstract class Param {
-    protected static readonly COLOR_INACTIVE = new ThemeColor('input.foreground');
-    protected readonly statusBarItem: StatusBarItem;
-    protected readonly disposables: Disposable[] = [];
-
-    static getIcon(param: Param) {
-        if (param instanceof ArrayParam) {
-            return ArrayParam.icon;
-        } else if (param instanceof CommandParam) {
-            return CommandParam.icon;
-        } else {
-            return new ThemeIcon('');
-        }
-    }
+export class Param {
+    // a dimmed-but-readable grey for params with no selection, so an active
+    // (selected) param keeps the normal status-bar foreground and visibly stands
+    // out. `input.foreground` was wrong here — in many themes it is *brighter* than
+    // the default, making empty params look more prominent than selected ones.
+    private static readonly COLOR_INACTIVE = new ThemeColor('descriptionForeground');
+    private readonly statusBarItem: StatusBarItem;
+    private readonly disposables: Disposable[] = [];
+    // bumped on each update() so a late-resolving refresh can detect a newer one
+    // started and bow out instead of writing a stale result
+    private updateGeneration = 0;
+    // set when the retrieval command couldn't be registered (duplicate id, owned by
+    // another file's param). The owning JsonFile then drops this param.
+    registrationFailed = false;
 
     constructor(
-        public readonly input: ParamInput,
-        protected readonly priority: number,
-        protected readonly jsonOffset: number,
-        protected readonly jsonArrayIndex: number,
-        protected readonly jsonFile: JsonFile) {
-
+        public readonly id: string,
+        public readonly command: string,
+        public readonly opts: Options,
+        private readonly priority: number,
+        public readonly jsonOffset: number,
+        public readonly jsonArrayIndex: number,
+        // JSONPath of the inputs array this param lives in (['inputs'], or
+        // ['launch','inputs'] in a .code-workspace); used to delete the right entry
+        public readonly inputsPath: JSONPath,
+        public readonly jsonFile: JsonFile,
+        public readonly valuesDelegate: ValuesDelegate,
+        private readonly config: ExtensionConfig,
+    ) {
         // create status bar item
         this.statusBarItem = window.createStatusBarItem(StatusBarAlignment.Left, this.priority);
-        this.statusBarItem.tooltip = this.input.id;
+        this.statusBarItem.tooltip = this.id;
         this.disposables.push(this.statusBarItem);
         this.statusBarItem.command = {
             title: 'Select',
             command: Strings.COMMAND_SELECT,
             arguments: [this],
-            tooltip: this.input.id
+            tooltip: this.id,
         };
-        this.update();
-
         try {
             // create command to retrieve the selected value (when input:<input_id> is used in json)
-            this.disposables.push(
-                commands.registerCommand(this.input.command, () => this.onGet())
-            );
-            this.statusBarItem.show();
+            this.disposables.push(commands.registerCommand(this.command, () => this.onGet()));
         } catch (err) {
             console.error(err);
-            if (err instanceof Error) {
-                window.showErrorMessage(err.message);
-            }
+            // registration fails on a duplicate id; name the param so it doesn't
+            // silently never appear
+            this.registrationFailed = true;
+            const detail = err instanceof Error ? err.message : String(err);
+            window.showErrorMessage(
+                `Could not register parameter '${this.id}'. A parameter with this name may already exist — names must be unique. (${detail})`,
+            );
+            // bail before resolving values: this param will be dropped, and a
+            // command-backed one must not run its shell command even once
+            return;
         }
+        // resolve values only after the retrieval command is registered
+        this.update();
+        this.statusBarItem.show();
     }
 
+    /**
+     * Re-resolve the selectable values and reconcile the stored selection against
+     * them (dropping stale entries, applying `initialSelection`/first-value
+     * defaults), then refresh the status-bar text. Concurrency-safe: a newer
+     * update() supersedes one whose value resolution is still in flight.
+     */
     async update() {
-        let selection = await this.loadSelectedValues();
+        const generation = ++this.updateGeneration;
+        // loadSelectedValues() is synchronous; only getValues() needs awaiting
+        let storedSelections = this.loadSelectedValues();
         const values = await this.getValues();
-        // Set to initial value if one is given and no value was selected for this param before
-        if (!selection) {
-            if (this.input.args.initialSelection) {
-                if (this.input.args.initialSelection instanceof Array) {
-                    selection = this.input.args.initialSelection;
-                } else {
-                    selection = [this.input.args.initialSelection];
-                }
-            } else {
-                selection = [];
+        // a newer update() began while getValues() was in flight: let it win
+        if (generation !== this.updateGeneration) {
+            return;
+        }
+        // undefined: values can't be determined now (untrusted workspace, or a
+        // failing command) — keep the stored selection, restored once available
+        // again. An empty array, by contrast, clears the selection.
+        if (values === undefined) {
+            this.setText(storedSelections ?? []);
+            this.jsonFile.changeEmitter.fire(this);
+            return;
+        }
+        // fall back to initialSelection when nothing was selected before
+        if (!storedSelections) {
+            const initial = this.opts.initialSelection;
+            const asArray = initial === undefined ? [] : Array.isArray(initial) ? initial : [initial];
+            // a single-select param must not seed multiple values (onGet would join
+            // them into a multi-token substitution); keep only the first
+            storedSelections = this.opts.canPickMany ? asArray : asArray.slice(0, 1);
+        }
+        // Map stored selections (raw values) to the currently selectable values,
+        // dropping any that are no longer present.
+        let availableSelections: DisplayableValue[] = [];
+        storedSelections.forEach((storedSelection) => {
+            const match = values.find((value) => value.value === storedSelection);
+            if (match) {
+                availableSelections.push(match);
             }
-        }
-        // Delete selected values that are not selectable
-        selection = selection.filter(s => values.includes(s));
-
-        // Set default value if selection is empty and mulitple selection is not used. For multiple selection, leave emtpy.
-        if (selection.length === 0 && !this.input.args.canPickMany) {
-            selection = [values[0]];
-        }
-
-        this.storeSelectedValues(selection);
-    }
-
-    async onSelect() {
-        const values = await this.getValues();
-        const oldSelection = await this.loadSelectedValues() || [];
-        // preselect single selection
-        if (!this.input.args.canPickMany && oldSelection.length === 1) {
-            const selectionIndex = values.findIndex(value => value === oldSelection[0]);
-            if (selectionIndex !== -1) {
-                values.unshift(values.splice(selectionIndex, 1)[0]);
-            }
-        }
-        // preselect multiple selection
-        const items = values.map(value => {
-            return {
-                label: value,
-                picked: oldSelection.includes(value)
-            };
         });
-        const newSelection = await window.showQuickPick(items, { canPickMany: this.input.args.canPickMany, ignoreFocusOut: this.input.args.canPickMany });
-        if (newSelection !== undefined) {
-            this.storeSelectedValues(newSelection instanceof Array ? newSelection.map(value => value.label) : [newSelection.label]);
+
+        // Set default value if selection is empty and multiple selection is not used. For multiple selection, leave empty.
+        if (availableSelections.length === 0 && !this.opts.canPickMany && values.length > 0) {
+            availableSelections = [values[0]];
         }
+
+        this.storeSelectedValues(availableSelections);
     }
 
-    async onEdit() {
-        const textDocument = await workspace.openTextDocument(this.jsonFile.uri);
-        const position = textDocument.positionAt(this.jsonOffset);
-        const selection = new Range(position, position);
-        await window.showTextDocument(textDocument, { selection });
+    /** Persist the given selection (raw values) and update the status-bar text. */
+    storeSelectedValues(values: DisplayableValue[]) {
+        // persist the raw values, but display the (optional) display names
+        this.config.workspaceState.update(
+            this.command,
+            values.map((value) => value.value),
+        );
+        this.setText(values.map((value) => value.displayValue));
+        this.jsonFile.changeEmitter.fire(this);
     }
 
-    storeSelectedValues(values: string[]) {
-        ext.getExtensionContext().workspaceState.update(this.input.command, values);
-        this.setText(values);
-        ParameterProvider.onDidChangeTreeDataEmitter.fire(this);
-    }
-
+    /**
+     * Render the status-bar item for the given display values, honoring the
+     * showName/showSelection settings and greying out an empty/blank selection.
+     */
     setText(selection: string[]) {
-        const showName = this.input.args.showName !== undefined ? this.input.args.showName : ext.getShowNames();
-        const showSelection = this.input.args.showSelection !== undefined ? this.input.args.showSelection : ext.getShowSelections();
-        const selectionEmpty = selection.length === 0 || (selection.length === 1 && selection[0] === '');
+        const showName = this.opts.showName ?? this.config.showNames;
+        const showSelection = this.opts.showSelection ?? this.config.showSelections;
+        // "no selection" = an empty array or only blank values. A shell command can
+        // emit a blank/whitespace line, which would otherwise render as a blank but
+        // active-coloured item — visually indistinguishable from a real selection and
+        // inconsistent with the grey shown when there is genuinely nothing selected.
+        const selectionEmpty = selection.every((value) => value.trim() === '');
         // determine text
         let text = '';
         if (showName || (selectionEmpty && showSelection)) {
-            text = this.input.id;
+            text = this.id;
         }
         if (showSelection && !selectionEmpty) {
             if (showName) {
@@ -146,150 +155,66 @@ export abstract class Param {
             }
             text += selection.join(' ');
         }
-        // detemine color
+        // determine color
         if (selectionEmpty) {
             this.statusBarItem.color = Param.COLOR_INACTIVE;
         } else {
-            this.statusBarItem.color = '';
+            // undefined resets the color to the default (vs '' which relies on unspecified behavior)
+            this.statusBarItem.color = undefined;
         }
         this.statusBarItem.text = text;
     }
 
+    // remove this param's persisted selection (its values outlive a plain delete otherwise)
+    deleteStoredSelection(): Thenable<void> {
+        return this.config.workspaceState.update(this.command, undefined);
+    }
+
+    /** Resolve the `${command:…get.<id>}` substitution: the selected value(s), space-joined. */
     onGet() {
-        let selection = this.loadSelectedValues();
-        if (!selection) {
-            selection = [];
-        }
+        const selection = this.loadSelectedValues() ?? [];
         return selection.join(' ');
     }
 
     loadSelectedValues() {
-        let values = ext.getExtensionContext().workspaceState.get<string[]>(this.input.command);
+        let values = this.config.workspaceState.get<string[]>(this.command);
         // to remain compatible for stored values of version 1.3.1 and before
         if (!values) {
-            const oldKey = `${Strings.COMMAND_SELECT}.${this.input.id}`;
-            const oldValues = ext.getExtensionContext().workspaceState.get<string>(oldKey);
+            const oldKey = `${Strings.COMMAND_SELECT}.${this.id}`;
+            const oldValues = this.config.workspaceState.get<string>(oldKey);
             if (oldValues) {
-                ext.getExtensionContext().workspaceState.update(oldKey, null);
                 values = [oldValues];
+                // write the new key before removing the old (order matters if the
+                // second write never lands), so onGet() can't drop the value mid-migrate
+                this.config.workspaceState.update(this.command, values);
+                this.config.workspaceState.update(oldKey, undefined);
             }
         }
         return values;
     }
 
-    async onCopyCmd() {
-        const inputStringLabel = "Copy Input String";
-        const commandStringLabel = "Copy Command String";
-        const items: QuickPickItem[] = [
-            {
-                label: inputStringLabel,
-                description: 'To use only in the vscode configuration file where the parameter is defined.'
-            },
-            {
-                label: commandStringLabel,
-                description: 'To use across vscode configuration files.'
-            }
-        ];
-        const copyType = await window.showQuickPick(items, {
-            placeHolder: 'Select the string you want to copy.',
-        });
-        if (copyType?.label === inputStringLabel) {
-            env.clipboard.writeText(`\${input:${this.input.id}}`);
+    // open the json file at this param's definition (for edit and auto-open on create)
+    async reveal() {
+        // the user tasks.json has no directly-openable uri; let the workbench open it
+        if (this.jsonFile.useDocumentIO) {
+            await commands.executeCommand('workbench.action.tasks.openUserTasks');
+            return;
         }
-        else if (copyType?.label === commandStringLabel) {
-            env.clipboard.writeText(`\${command:${Strings.EXTENSION_ID}.get.${this.input.id}}`);
-        }
-    }
-
-    async onDelete() {
-        const selection = await window.showQuickPick(["No", "Yes"], { placeHolder: 'Do you really want to delete ' + this.input.id + '?' });
-        if (selection !== undefined) {
-            let fileContent = (await workspace.fs.readFile(this.jsonFile.uri)).toString();
-            const jsoncInputsPath = this.jsonFile.getJsoncPaths().inputsPath;
-            jsoncInputsPath.push(this.jsonArrayIndex);
-            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, jsoncInputsPath, undefined, { formattingOptions: {} }));
-            workspace.fs.writeFile(this.jsonFile.uri, Buffer.from(fileContent));
-        }
+        const textDocument = await workspace.openTextDocument(this.jsonFile.uri);
+        const position = textDocument.positionAt(this.jsonOffset);
+        const selection = new Range(position, position);
+        await window.showTextDocument(textDocument, { selection });
     }
 
     dispose() {
-        this.disposables.forEach(disposable => disposable.dispose());
+        this.disposables.forEach((disposable) => disposable.dispose());
     }
 
-    abstract getValues(): Promise<string[]>;
-}
-
-/**
- * Array Param
- */
-export interface ArrayOptions extends ParamOptions {
-    values: string[];
-}
-interface ArrayInput extends ParamInput {
-    args: ArrayOptions
-}
-export class ArrayParam extends Param {
-    static readonly icon = new ThemeIcon('array');
-
-    constructor(public input: ArrayInput, priority: number, jsonOffset: number, jsonArrayIndex: number, jsonFile: JsonFile) {
-        super(input, priority, jsonOffset, jsonArrayIndex, jsonFile);
+    getValues(force = false): Promise<DisplayableValue[] | undefined> {
+        return this.valuesDelegate.getValues(force);
     }
 
-    async getValues(): Promise<string[]> {
-        // return a copy of the array to preserve the order
-        return Promise.resolve([...this.input.args.values]);
-    }
-}
-
-/**
- * CommandParam
- */
-export interface CommandOptions extends ParamOptions {
-    shellCmd: string;
-    cwd?: string;
-    separator?: string;
-}
-interface CommandInput extends ParamInput {
-    args: CommandOptions
-}
-export class CommandParam extends Param {
-    static readonly icon = new ThemeIcon('terminal');
-
-    constructor(public input: CommandInput, priority: number, jsonOffset: number, jsonArrayIndex: number, jsonFile: JsonFile) {
-        super(input, priority, jsonOffset, jsonArrayIndex, jsonFile);
-    }
-
-    async getValues() {
-        let execPath = path.dirname(this.jsonFile.uri.fsPath).replace(/.vscode$/, '');
-        if (this.input.args.cwd) {
-            execPath = path.resolve(execPath, this.input.args.cwd);;
-        }
-        try {
-            await workspace.fs.stat(Uri.file(execPath));
-            const stdout = await this.execCmd(this.input.args.shellCmd, execPath);
-            const values = stdout.split(this.input.args.separator || '\n');
-            if (values && values.length > 0 && values[values.length - 1] === '') {
-                values.pop();
-            }
-            return values;
-        } catch (e) {
-            const error = `Failed to launch command ${this.input.id}: ${JSON.stringify(e)}`;
-            console.error(error);
-            window.showErrorMessage(error);
-            return [];
-        }
-    }
-
-    async execCmd(cmd: string, cwd: string): Promise<string> {
-        return new Promise((resolve) => {
-            exec(cmd, { cwd }, (error, stdout, stderr) => {
-                if (error) {
-                    console.error(error + ":", stderr);
-                    window.showErrorMessage(`Executing ${this.input.args.shellCmd} failed: ${stderr}`);
-                    return;
-                }
-                resolve(stdout);
-            });
-        });
+    getIcon(): ThemeIcon {
+        return this.valuesDelegate.getIcon();
     }
 }

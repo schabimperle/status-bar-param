@@ -1,8 +1,11 @@
-export class Strings {
-    static readonly EXTENSION_ID = 'statusBarParam';
-    static readonly COMMAND_ADD = `${Strings.EXTENSION_ID}.add`;
-    static readonly COMMAND_SELECT = `${Strings.EXTENSION_ID}.select`;
-    static readonly COMMAND_EDIT = `${Strings.EXTENSION_ID}.edit`;
-    static readonly COMMAND_COPY_CMD = `${Strings.EXTENSION_ID}.copyCmd`;
-    static readonly COMMAND_DELETE = `${Strings.EXTENSION_ID}.delete`;
-}
+/** Extension id and contributed command ids. */
+const EXTENSION_ID = 'statusBarParam';
+export const Strings = {
+    EXTENSION_ID,
+    COMMAND_ADD: `${EXTENSION_ID}.add`,
+    COMMAND_RESET_SELECTIONS: `${EXTENSION_ID}.resetSelections`,
+    COMMAND_SELECT: `${EXTENSION_ID}.select`,
+    COMMAND_EDIT: `${EXTENSION_ID}.edit`,
+    COMMAND_COPY_CMD: `${EXTENSION_ID}.copyCmd`,
+    COMMAND_DELETE: `${EXTENSION_ID}.delete`,
+} as const;
