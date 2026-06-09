@@ -1,0 +1,59 @@
+{
+    "$id": "array_options_schema.json",
+    "definitions": {
+        "arrayValue": {
+            "oneOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "displayValue": {
+                            "type": "string",
+                            "description": "A name to display in the status bar instead of the value."
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "The value to return if selected."
+                        }
+                    },
+                    "required": [
+                        "value"
+                    ]
+                }
+            ]
+        }
+    },
+    "if": {
+        "type": "array"
+    },
+    "then": {
+        "type": "array",
+        "items": {
+            "$ref": "#/definitions/arrayValue"
+        }
+    },
+    "else": {
+        "allOf": [
+            {
+                "$ref": "options_schema.json"
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "values": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/arrayValue"
+                        },
+                        "description": "A list of parameter values to select from."
+                    }
+                },
+                "required": [
+                    "values"
+                ]
+            }
+        ]
+    }
+}

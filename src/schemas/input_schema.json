@@ -1,0 +1,31 @@
+{
+    "$id": "input_schema.json",
+    "type": "object",
+    "if": {
+        "required": ["type", "command"],
+        "properties": {
+            "type": {
+                "const": "command"
+            },
+            "command": {
+                "type": "string",
+                "pattern": "^statusBarParam\\.get\\..+$"
+            }
+        }
+    },
+    "then": {
+        "required": ["args"],
+        "properties": {
+            "args": {
+                "oneOf": [
+                    {
+                        "$ref": "array_options_schema.json"
+                    },
+                    {
+                        "$ref": "command_options_schema.json"
+                    }
+                ]
+            }
+        }
+    }
+}
