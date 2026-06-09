@@ -238,7 +238,7 @@ async function promptAdvancedOptions(type: ParamType, ctx: WizardContext): Promi
         items.push({ key: 'sampleTask', label: 'Add a sample task', description: 'Scaffold a runnable task that demonstrates using the parameter.' });
     }
     const picked = await window.showQuickPick(items, {
-        placeHolder: 'Optionally configure advanced options, or select none to use the defaults.',
+        placeHolder: 'Configure advanced options, or select none to use the defaults.',
         canPickMany: true,
         ignoreFocusOut: true,
     });
