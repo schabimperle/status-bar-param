@@ -47,7 +47,7 @@ function setup(options: SetupOptions = {}) {
         getIcon: jest.fn(() => new vscode.ThemeIcon('array')),
     } as unknown as ValuesDelegate;
     const jsonFile = { uri: vscode.Uri.file('/ws/.vscode/tasks.json'), changeEmitter: new vscode.EventEmitter() } as unknown as JsonFile;
-    const param = new Param('myId', COMMAND, { ...options.opts }, 1, 7, 0, ['inputs'], jsonFile, delegate, config);
+    const param = new Param('myId', COMMAND, { ...options.opts }, 1, ['inputs'], jsonFile, delegate, config);
     const item = (vscode.window.createStatusBarItem as jest.Mock).mock.results.at(-1)!.value;
     return { param, item, memento, store, delegate, jsonFile };
 }
@@ -263,17 +263,77 @@ describe('Param.getIcon / reveal / dispose', () => {
         expect(delegate.getIcon).toHaveBeenCalled();
     });
 
-    it('reveal opens the defining document and shows it', async () => {
+    // a document whose getText/positionAt are captured so we can assert which byte
+    // offset reveal jumps to (and the selection passed to showTextDocument)
+    function mockDoc(text: string) {
+        let usedOffset = -1;
         const openSpy = jest.spyOn(vscode.workspace, 'openTextDocument').mockResolvedValue({
-            positionAt: (offset: number) => new vscode.Position(0, offset),
+            getText: () => text,
+            positionAt: (offset: number) => {
+                usedOffset = offset;
+                return new vscode.Position(0, offset);
+            },
         } as unknown as vscode.TextDocument);
         const showSpy = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
+        return { offset: () => usedOffset, restore: () => (openSpy.mockRestore(), showSpy.mockRestore()), openSpy, showSpy };
+    }
+
+    it('reveal opens the defining document and shows it', async () => {
+        const doc = mockDoc('{ "inputs": [ { "id": "myId", "args": ["a"] } ] }');
         const { param, jsonFile } = setup();
         await param.reveal();
-        expect(openSpy).toHaveBeenCalledWith(jsonFile.uri);
+        expect(doc.openSpy).toHaveBeenCalledWith(jsonFile.uri);
+        expect(doc.showSpy).toHaveBeenCalled();
+        doc.restore();
+    });
+
+    it('reveal resolves the offset from the document text by id', async () => {
+        const text = '{\n  "inputs": [\n    { "id": "myId", "type": "command", "command": "x", "args": ["a"] }\n  ]\n}';
+        const expected = text.indexOf('{ "id"');
+        const doc = mockDoc(text);
+        const { param } = setup();
+        await param.reveal();
+        expect(doc.offset()).toBe(expected);
+        // a selection was passed (the input was located)
+        expect(doc.showSpy.mock.calls[0][1]).toMatchObject({ selection: expect.anything() });
+        doc.restore();
+    });
+
+    it('reveal shows the document without a selection when the input is not found', async () => {
+        const doc = mockDoc('{}'); // input gone from the current text — no fallback
+        const { param } = setup();
+        await param.reveal();
+        expect(doc.offset()).toBe(-1); // positionAt never called
+        expect(doc.showSpy).toHaveBeenCalled();
+        expect(doc.showSpy.mock.calls[0][1]).toBeUndefined(); // no selection option
+        doc.restore();
+    });
+
+    it('reveal positions inside the user tasks editor the workbench opens', async () => {
+        // useDocumentIO files have no openable uri: the workbench command opens the
+        // editor, then reveal must still position the cursor at the input by id
+        const text = '{\n  "version": "2.0.0",\n  "inputs": [\n    { "id": "myId", "type": "command", "command": "x", "args": ["a"] }\n  ]\n}';
+        const expected = text.indexOf('{ "id"');
+        const exec = jest.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined as never);
+        let usedOffset = -1;
+        const doc = {
+            getText: () => text,
+            positionAt: (o: number) => {
+                usedOffset = o;
+                return new vscode.Position(0, o);
+            },
+        } as unknown as vscode.TextDocument;
+        Object.defineProperty(vscode.window, 'activeTextEditor', { value: { document: doc }, configurable: true });
+        const showSpy = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
+        const { param, jsonFile } = setup();
+        (jsonFile as unknown as { useDocumentIO: boolean }).useDocumentIO = true;
+        await param.reveal();
+        expect(exec).toHaveBeenCalledWith('workbench.action.tasks.openUserTasks');
+        expect(usedOffset).toBe(expected);
         expect(showSpy).toHaveBeenCalled();
-        openSpy.mockRestore();
+        exec.mockRestore();
         showSpy.mockRestore();
+        Object.defineProperty(vscode.window, 'activeTextEditor', { value: undefined, configurable: true });
     });
 
     it('dispose tears down the status bar item', () => {

@@ -66,100 +66,178 @@ describe('promptParamId', () => {
     });
 });
 
+// default wizard context: global showNames off, showSelections on, sample task offered
+const CTX: prompts.WizardContext = { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true };
+// pick nothing in the advanced multi-select (the common path)
+const noAdvanced = () => showQuickPick.mockResolvedValueOnce([]);
+// pick the given advanced option keys (canPickMany, displayValue, ...)
+const advanced = (...keys: string[]) => showQuickPick.mockResolvedValueOnce(keys.map((key) => ({ key })));
+
 describe('promptParamArgs (array)', () => {
-    // the first quick pick is the "use display labels?" toggle
-    const declineDisplayValues = () => showQuickPick.mockResolvedValueOnce({ label: 'No', value: false });
-    const useDisplayValues = () => showQuickPick.mockResolvedValueOnce({ label: 'Yes', value: true });
-
-    it('collects plain string values until an empty entry', async () => {
-        declineDisplayValues();
+    it('collects plain string values and returns a bare array when no advanced options are picked', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
-        await expect(prompts.promptParamArgs('array', '/ws')).resolves.toEqual(['a', 'b']);
+        noAdvanced();
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: ['a', 'b'], addSampleTask: false });
     });
 
-    it('aborts (undefined) when an entry is escaped', async () => {
-        declineDisplayValues();
+    it('aborts (undefined) when a value entry is escaped', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce(undefined);
-        await expect(prompts.promptParamArgs('array', '/ws')).resolves.toBeUndefined();
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
     });
 
-    it('aborts (undefined) when the display-label toggle is escaped', async () => {
+    it('aborts when the advanced options menu is escaped', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
         showQuickPick.mockResolvedValueOnce(undefined);
-        await expect(prompts.promptParamArgs('array', '/ws')).resolves.toBeUndefined();
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
     });
 
-    it('captures a display label and keeps unlabeled values as plain strings', async () => {
-        useDisplayValues();
-        showInputBox
-            .mockResolvedValueOnce('v1')
-            .mockResolvedValueOnce('Label one') // labeled
-            .mockResolvedValueOnce('v2')
-            .mockResolvedValueOnce('') // empty label -> plain
-            .mockResolvedValueOnce(''); // finished
-        await expect(prompts.promptParamArgs('array', '/ws')).resolves.toEqual([{ value: 'v1', displayValue: 'Label one' }, 'v2']);
+    it('wraps the values in an options object when canPickMany is picked', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
+        advanced('canPickMany');
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: { values: ['a', 'b'], canPickMany: true }, addSampleTask: false });
     });
 
-    it('aborts (undefined) when a display label is escaped', async () => {
-        useDisplayValues();
-        showInputBox.mockResolvedValueOnce('v1').mockResolvedValueOnce(undefined);
-        await expect(prompts.promptParamArgs('array', '/ws')).resolves.toBeUndefined();
+    it('sets the status-bar toggles to the opposite of the global default', async () => {
+        // global: showNames false, showSelections true → picking both flips each
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('showName', 'showSelection');
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({
+            args: { values: ['a'], showName: true, showSelection: false },
+            addSampleTask: false,
+        });
+    });
+
+    it('flips the toggles the other way when the global defaults are inverted', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('showName', 'showSelection');
+        const inverted: prompts.WizardContext = { showNamesDefault: true, showSelectionsDefault: false, offerSampleTask: true };
+        await expect(prompts.promptParamArgs('array', inverted)).resolves.toEqual({
+            args: { values: ['a'], showName: false, showSelection: true },
+            addSampleTask: false,
+        });
+    });
+
+    it('reports addSampleTask when the sample-task box is checked', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('sampleTask');
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: ['a'], addSampleTask: true });
+    });
+
+    it('collects per-value display labels, keeping an empty label as a plain string', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
+        advanced('displayValue');
+        showInputBox.mockResolvedValueOnce('Apple').mockResolvedValueOnce('');
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: [{ value: 'a', displayValue: 'Apple' }, 'b'], addSampleTask: false });
+    });
+
+    it('aborts when a display label is escaped', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('displayValue');
+        showInputBox.mockResolvedValueOnce(undefined);
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
+    });
+
+    it('sets a single initialSelection from a pick of the values', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
+        advanced('initialSelection');
+        showQuickPick.mockResolvedValueOnce({ value: 'b' });
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: { values: ['a', 'b'], initialSelection: 'b' }, addSampleTask: false });
+    });
+
+    it('sets a multi initialSelection when canPickMany is also picked', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
+        advanced('canPickMany', 'initialSelection');
+        showQuickPick.mockResolvedValueOnce([{ value: 'a' }, { value: 'b' }]);
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({
+            args: { values: ['a', 'b'], canPickMany: true, initialSelection: ['a', 'b'] },
+            addSampleTask: false,
+        });
+    });
+
+    it('treats an empty initial-selection pick as "no selection" (not abort)', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('canPickMany', 'initialSelection');
+        showQuickPick.mockResolvedValueOnce([]); // picked none
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: { values: ['a'], canPickMany: true }, addSampleTask: false });
+    });
+
+    it('aborts when the initial-selection pick is escaped', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('initialSelection');
+        showQuickPick.mockResolvedValueOnce(undefined);
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
     });
 });
 
 describe('promptParamArgs (command)', () => {
     it('aborts when no shell command is entered', async () => {
         showInputBox.mockResolvedValueOnce('');
-        await expect(prompts.promptParamArgs('command', '/ws')).resolves.toBeUndefined();
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toBeUndefined();
     });
 
-    it('aborts when Escape is pressed on the optional separator prompt', async () => {
-        showInputBox.mockResolvedValueOnce('ls').mockResolvedValueOnce(undefined);
-        await expect(prompts.promptParamArgs('command', '/ws')).resolves.toBeUndefined();
+    it('returns the shell command when no advanced options are picked', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        noAdvanced();
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({ args: { shellCmd: 'ls' } as CommandOptions, addSampleTask: false });
     });
 
-    it('aborts when Escape is pressed on the optional cwd prompt', async () => {
-        showInputBox.mockResolvedValueOnce('ls').mockResolvedValueOnce('').mockResolvedValueOnce(undefined);
-        await expect(prompts.promptParamArgs('command', '/ws')).resolves.toBeUndefined();
-    });
-
-    it('skips optional values left empty', async () => {
-        showInputBox.mockResolvedValueOnce('ls').mockResolvedValueOnce('').mockResolvedValueOnce('');
-        await expect(prompts.promptParamArgs('command', '/ws')).resolves.toEqual({ shellCmd: 'ls' });
-    });
-
-    it('captures provided separator and cwd', async () => {
-        showInputBox.mockResolvedValueOnce('ls').mockResolvedValueOnce(',').mockResolvedValueOnce('sub');
-        await expect(prompts.promptParamArgs('command', '/ws')).resolves.toEqual<CommandOptions>({
-            shellCmd: 'ls',
-            separator: ',',
-            cwd: 'sub',
+    it('adds cwd and separator when picked', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('cwd', 'separator');
+        showInputBox.mockResolvedValueOnce('/tmp').mockResolvedValueOnce(',');
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
+            args: { shellCmd: 'ls', cwd: '/tmp', separator: ',' } as CommandOptions,
+            addSampleTask: false,
         });
     });
-});
 
-describe('promptCanPickMany', () => {
-    it('returns true/false for Yes/No and undefined on Escape', async () => {
-        showQuickPick.mockResolvedValueOnce({ label: 'Yes', value: true });
-        await expect(prompts.promptCanPickMany()).resolves.toBe(true);
-        showQuickPick.mockResolvedValueOnce({ label: 'No', value: false });
-        await expect(prompts.promptCanPickMany()).resolves.toBe(false);
-        showQuickPick.mockResolvedValueOnce(undefined);
-        await expect(prompts.promptCanPickMany()).resolves.toBeUndefined();
-    });
-});
-
-describe('promptAddSampleTask', () => {
-    it('returns false without prompting for launch.json', async () => {
-        await expect(prompts.promptAddSampleTask(true)).resolves.toBe(false);
-        expect(showQuickPick).not.toHaveBeenCalled();
+    it('interprets backslash escapes in the separator (\\n -> newline)', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('separator');
+        showInputBox.mockResolvedValueOnce('\\n'); // user typed backslash-n
+        const result = (await prompts.promptParamArgs('command', CTX)) as { args: CommandOptions };
+        expect(result.args.separator).toBe('\n'); // a real newline, not the 2-char string
     });
 
-    it('returns true/false for Yes/No and undefined on Escape', async () => {
-        showQuickPick.mockResolvedValueOnce({ label: 'Yes', value: true });
-        await expect(prompts.promptAddSampleTask(false)).resolves.toBe(true);
-        showQuickPick.mockResolvedValueOnce({ label: 'No', value: false });
-        await expect(prompts.promptAddSampleTask(false)).resolves.toBe(false);
-        showQuickPick.mockResolvedValueOnce(undefined);
-        await expect(prompts.promptAddSampleTask(false)).resolves.toBeUndefined();
+    it('skips an empty optional command input without aborting', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('cwd');
+        showInputBox.mockResolvedValueOnce(''); // empty cwd → skip
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({ args: { shellCmd: 'ls' } as CommandOptions, addSampleTask: false });
+    });
+
+    it('aborts when an optional command input is escaped', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('separator');
+        showInputBox.mockResolvedValueOnce(undefined); // separator escaped
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toBeUndefined();
+    });
+
+    it('sets a single free-text initialSelection for a command param', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('initialSelection');
+        showInputBox.mockResolvedValueOnce('main'); // free-text initial selection
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
+            args: { shellCmd: 'ls', initialSelection: 'main' } as CommandOptions,
+            addSampleTask: false,
+        });
+    });
+
+    it('collects multiple free-text initial selections when canPickMany is picked', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('canPickMany', 'initialSelection');
+        showInputBox.mockResolvedValueOnce('main').mockResolvedValueOnce('dev').mockResolvedValueOnce(''); // two values then finish
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
+            args: { shellCmd: 'ls', canPickMany: true, initialSelection: ['main', 'dev'] } as CommandOptions,
+            addSampleTask: false,
+        });
+    });
+
+    it('does not offer a sample task when offerSampleTask is false (launch.json)', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        // the menu has no sampleTask item to pick; selecting nothing yields no task
+        noAdvanced();
+        const noSample: prompts.WizardContext = { ...CTX, offerSampleTask: false };
+        await expect(prompts.promptParamArgs('command', noSample)).resolves.toEqual({ args: { shellCmd: 'ls' } as CommandOptions, addSampleTask: false });
     });
 });

@@ -35,44 +35,44 @@ describe('onReset', () => {
 });
 
 describe('onAddParam', () => {
-    let jsonFile: JsonFile & { addParam: jest.Mock; getDefaultCwd: jest.Mock };
+    let jsonFile: JsonFile & { addParam: jest.Mock };
+    const config = { showNames: false, showSelections: true } as unknown as ExtensionConfig;
 
     beforeEach(() => {
         jsonFile = {
             uri: { path: '/ws/.vscode/tasks.json' },
-            getDefaultCwd: jest.fn(() => '/ws'),
+            isLaunchJson: false,
             addParam: jest.fn(),
-        } as unknown as JsonFile & { addParam: jest.Mock; getDefaultCwd: jest.Mock };
+        } as unknown as JsonFile & { addParam: jest.Mock };
 
         (prompts.promptParamType as jest.Mock).mockResolvedValue('array');
         (prompts.promptParamId as jest.Mock).mockResolvedValue('myId');
-        (prompts.promptParamArgs as jest.Mock).mockResolvedValue(['a', 'b']);
-        (prompts.promptCanPickMany as jest.Mock).mockResolvedValue(false);
-        (prompts.promptAddSampleTask as jest.Mock).mockResolvedValue(false);
+        // promptParamArgs now returns the args plus the sample-task choice
+        (prompts.promptParamArgs as jest.Mock).mockResolvedValue({ args: ['a', 'b'], addSampleTask: false });
     });
 
-    it('writes the gathered parameter and passes the default cwd to the args prompt', async () => {
-        await commands.onAddParam([], jsonFile);
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', '/ws');
+    it('writes the gathered parameter and passes the wizard context', async () => {
+        await commands.onAddParam(config, [], jsonFile);
+        // the global defaults + sample-task offer are threaded into the prompt
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true });
         expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['a', 'b'], false);
     });
 
-    it('wraps array values into options when canPickMany is enabled', async () => {
-        (prompts.promptCanPickMany as jest.Mock).mockResolvedValue(true);
-        await commands.onAddParam([], jsonFile);
-        expect(jsonFile.addParam).toHaveBeenCalledWith('myId', { values: ['a', 'b'], canPickMany: true }, false);
+    it('forwards the sample-task choice from the advanced step', async () => {
+        (prompts.promptParamArgs as jest.Mock).mockResolvedValue({ args: ['a'], addSampleTask: true });
+        await commands.onAddParam(config, [], jsonFile);
+        expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['a'], true);
     });
 
-    it('passes display-labeled values through unwrapped when canPickMany is off', async () => {
-        const labeled = [{ value: 'a', displayValue: 'Apple' }, 'b'];
-        (prompts.promptParamArgs as jest.Mock).mockResolvedValue(labeled);
-        await commands.onAddParam([], jsonFile);
-        expect(jsonFile.addParam).toHaveBeenCalledWith('myId', labeled, false);
+    it('does not offer a sample task for launch.json', async () => {
+        (jsonFile as unknown as { isLaunchJson: boolean }).isLaunchJson = true;
+        await commands.onAddParam(config, [], jsonFile);
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', expect.objectContaining({ offerSampleTask: false }));
     });
 
     it('asks for a file when invoked without one and aborts if none is chosen', async () => {
         (prompts.promptJsonFile as jest.Mock).mockResolvedValue(undefined);
-        await commands.onAddParam([jsonFile]);
+        await commands.onAddParam(config, [jsonFile]);
         expect(prompts.promptJsonFile).toHaveBeenCalled();
         expect(jsonFile.addParam).not.toHaveBeenCalled();
     });
@@ -81,11 +81,9 @@ describe('onAddParam', () => {
         ['type', () => (prompts.promptParamType as jest.Mock).mockResolvedValue(undefined)],
         ['id', () => (prompts.promptParamId as jest.Mock).mockResolvedValue(undefined)],
         ['args', () => (prompts.promptParamArgs as jest.Mock).mockResolvedValue(undefined)],
-        ['canPickMany (Escape)', () => (prompts.promptCanPickMany as jest.Mock).mockResolvedValue(undefined)],
-        ['addSampleTask (Escape)', () => (prompts.promptAddSampleTask as jest.Mock).mockResolvedValue(undefined)],
     ])('aborts without writing when %s is cancelled', async (_label, arrange) => {
         arrange();
-        await commands.onAddParam([], jsonFile);
+        await commands.onAddParam(config, [], jsonFile);
         expect(jsonFile.addParam).not.toHaveBeenCalled();
     });
 });
@@ -155,13 +153,13 @@ describe('onEdit', () => {
 });
 
 describe('onCopyCmd', () => {
-    it('copies the input string', async () => {
+    it('copies the input reference', async () => {
         showQuickPick.mockResolvedValueOnce({ target: 'input' });
         await commands.onCopyCmd(fakeParam({}));
         expect(writeText).toHaveBeenCalledWith('${input:myId}');
     });
 
-    it('copies the command string', async () => {
+    it('copies the command reference', async () => {
         showQuickPick.mockResolvedValueOnce({ target: 'command' });
         await commands.onCopyCmd(fakeParam({}));
         expect(writeText).toHaveBeenCalledWith('${command:statusBarParam.get.myId}');
@@ -183,7 +181,6 @@ describe('onDelete', () => {
         const uri = vscode.Uri.file(uriPath);
         return {
             id: 'myId',
-            jsonArrayIndex: 0,
             inputsPath: ['inputs'],
             deleteStoredSelection: jest.fn(),
             jsonFile: {
@@ -241,7 +238,7 @@ describe('onDelete', () => {
         readFile.mockResolvedValue(Buffer.from(workspaceContent));
         showQuickPick.mockResolvedValueOnce({ confirmed: true });
 
-        await commands.onDelete(deletableParam({ id: 'launchParam', jsonArrayIndex: 0, inputsPath: ['launch', 'inputs'] }, '/ws/test.code-workspace'));
+        await commands.onDelete(deletableParam({ id: 'launchParam', inputsPath: ['launch', 'inputs'] }, '/ws/test.code-workspace'));
 
         const written = JSON.parse((writeFile.mock.calls.at(-1)![1] as Buffer).toString());
         expect(written.launch.inputs).toHaveLength(0); // launch param removed

@@ -106,7 +106,7 @@
       {
         "command": "statusBarParam.copyCmd",
         "category": "Status Bar Parameter",
-        "title": "Copy Retrieval String",
+        "title": "Copy Reference",
         "icon": "$(clippy)"
       },
       {

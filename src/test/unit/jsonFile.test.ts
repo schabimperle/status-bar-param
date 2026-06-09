@@ -111,12 +111,30 @@ describe('JsonFile path helpers', () => {
     });
 });
 
+describe('JsonFile.detectFormatting', () => {
+    it('detects 2-space indentation', () => {
+        expect(JsonFile.detectFormatting('{\n  "a": 1\n}')).toEqual({ tabSize: 2, insertSpaces: true });
+    });
+    it('detects 4-space indentation', () => {
+        expect(JsonFile.detectFormatting('{\n    "a": 1\n}')).toEqual({ tabSize: 4, insertSpaces: true });
+    });
+    it('detects tab indentation', () => {
+        expect(JsonFile.detectFormatting('{\n\t"a": 1\n}')).toEqual({ tabSize: 4, insertSpaces: false });
+    });
+    it('falls back to 4-space for a flat/empty file', () => {
+        expect(JsonFile.detectFormatting('{}')).toEqual({ tabSize: 4, insertSpaces: true });
+    });
+});
+
 describe('JsonFile.addParam', () => {
     function written(): Record<string, unknown> {
         return jsonc.parse((writeFile.mock.calls.at(-1)![1] as Buffer).toString());
     }
+    function writtenRaw(): string {
+        return (writeFile.mock.calls.at(-1)![1] as Buffer).toString();
+    }
 
-    it('writes a command input with the version and no sample task', async () => {
+    it('writes a command input with the version and no task', async () => {
         const file = makeFile('/ws/.vscode/tasks.json');
         await file.addParam('greeting', ['hi', 'bye'], false);
 
@@ -145,6 +163,40 @@ describe('JsonFile.addParam', () => {
         const tasks = written().tasks as Array<{ label: string }>;
         expect(tasks).toHaveLength(1);
         expect(tasks[0].label).toContain('greeting');
+        // a comment above the task object explains it only demonstrates the parameter
+        expect(writtenRaw()).toMatch(/\/\/ Sample task demonstrating the use of the 'greeting' parameter\.\n\s*\{/);
+    });
+
+    it("keeps the file's existing indentation (no tabs, consistent levels)", async () => {
+        // a 2-space file must stay 2-space; the jsonc default ({}) would otherwise
+        // emit tabs and re-flow the touched property to column 0 (mixed indent).
+        const file = makeFile('/ws/.vscode/tasks.json', '{\n  "version": "2.0.0",\n  "tasks": []\n}\n');
+        await file.addParam('greeting', ['hi'], true);
+
+        const raw = writtenRaw();
+        expect(raw).not.toContain('\t');
+        expect(raw).toContain('\n  "tasks": ['); // top-level key stays at 2 spaces
+        expect(raw).toContain('\n    {'); // task object nested one level (4)
+        expect(raw).toContain('\n      "label":'); // task props nested two levels (6)
+    });
+
+    it('adds a one-time IntelliSense tip comment directly above args, for the first parameter only', async () => {
+        // first param into an empty file -> tip comment present, on the line above `args`
+        const file = makeFile('/ws/.vscode/tasks.json');
+        await file.addParam('first', ['hi'], false);
+        const firstRaw = (writeFile.mock.calls.at(-1)![1] as Buffer).toString();
+        // two-line tip; the second line sits directly above "args" (both indented)
+        expect(firstRaw).toMatch(/\/\/ 'args' can be an array[^\n]*\n\s*\/\/ and advanced options[^\n]*IntelliSense\.\n\s*"args":/);
+
+        // adding into a file that already has an input must not repeat it
+        const existing = JSON.stringify({
+            version: '2.0.0',
+            inputs: [{ id: 'existing', type: 'command', command: 'statusBarParam.get.existing', args: ['x'] }],
+        });
+        const file2 = makeFile('/ws/.vscode/tasks.json', existing);
+        await file2.addParam('second', ['bye'], false);
+        const secondRaw = (writeFile.mock.calls.at(-1)![1] as Buffer).toString();
+        expect(secondRaw).not.toContain("// 'args'");
     });
 
     it('does not add a version field to launch.json', async () => {

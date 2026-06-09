@@ -9,7 +9,7 @@ import * as log from './log';
 
 const WORKSPACE_INPUT_FILES = ['.vscode/tasks.json', '.vscode/launch.json'];
 
-// Activation-time state and wiring; command/listener bodies delegate to commands.ts.
+/** Activation-time state and wiring; command/listener bodies delegate to commands.ts. */
 class StatusBarParam {
     private readonly jsonFiles: JsonFile[] = [];
     private readonly config: ExtensionConfig;
@@ -38,7 +38,7 @@ class StatusBarParam {
             }),
 
             // global commands
-            commands.registerCommand(Strings.COMMAND_ADD, (jsonFile?: JsonFile) => onAddParam(this.jsonFiles, jsonFile)),
+            commands.registerCommand(Strings.COMMAND_ADD, (jsonFile?: JsonFile) => onAddParam(this.config, this.jsonFiles, jsonFile)),
             commands.registerCommand(Strings.COMMAND_RESET_SELECTIONS, () => onReset(this.config, this.jsonFiles)),
 
             // param commands (fall back to a picker when invoked without a param)
@@ -158,11 +158,13 @@ class StatusBarParam {
 
 let extension: StatusBarParam | undefined;
 
+/** VS Code entry point: build the extension instance and wire it up. */
 export function activate(context: ExtensionContext) {
     extension = new StatusBarParam(context);
     extension.activate();
 }
 
+/** VS Code shutdown hook: dispose the extension (guarded against double/early calls). */
 export function deactivate() {
     extension?.dispose();
     extension = undefined;

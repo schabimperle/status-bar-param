@@ -1,4 +1,5 @@
-import { commands, Disposable, Range, StatusBarAlignment, StatusBarItem, ThemeColor, ThemeIcon, window, workspace } from 'vscode';
+import { commands, Disposable, Range, StatusBarAlignment, StatusBarItem, TextDocument, ThemeColor, ThemeIcon, window, workspace } from 'vscode';
+import * as jsonc from 'jsonc-parser';
 import { JSONPath } from 'jsonc-parser';
 import { Strings } from './strings';
 import { JsonFile } from './jsonFile';
@@ -32,10 +33,8 @@ export class Param {
         public readonly command: string,
         public readonly opts: Options,
         private readonly priority: number,
-        public readonly jsonOffset: number,
-        public readonly jsonArrayIndex: number,
         // JSONPath of the inputs array this param lives in (['inputs'], or
-        // ['launch','inputs'] in a .code-workspace); used to delete the right entry
+        // ['launch','inputs'] in a .code-workspace); used to locate it for reveal/delete
         public readonly inputsPath: JSONPath,
         public readonly jsonFile: JsonFile,
         public readonly valuesDelegate: ValuesDelegate,
@@ -195,25 +194,50 @@ export class Param {
 
     // open the json file at this param's definition (for edit and auto-open on create)
     async reveal() {
-        // the user tasks.json has no directly-openable uri; let the workbench open it
+        let document: TextDocument | undefined;
         if (this.jsonFile.useDocumentIO) {
+            // the user tasks.json has no directly-openable uri; the workbench opens
+            // it, then we position within the editor it activated
             await commands.executeCommand('workbench.action.tasks.openUserTasks');
+            document = window.activeTextEditor?.document;
+        } else {
+            document = await workspace.openTextDocument(this.jsonFile.uri);
+        }
+        if (!document) {
             return;
         }
-        const textDocument = await workspace.openTextDocument(this.jsonFile.uri);
-        const position = textDocument.positionAt(this.jsonOffset);
-        const selection = new Range(position, position);
-        await window.showTextDocument(textDocument, { selection });
+        // resolve the offset from the document's *current* text (the file or an
+        // unsaved buffer may have changed since this Param was parsed); if the input
+        // can't be located, just show the document without moving the cursor
+        const offset = this.findInputOffset(document.getText());
+        if (offset === undefined) {
+            await window.showTextDocument(document);
+            return;
+        }
+        const position = document.positionAt(offset);
+        await window.showTextDocument(document, { selection: new Range(position, position) });
+    }
+
+    // locate this param's input object in the given json text by its (globally
+    // unique) id, returning the byte offset of its opening brace, or undefined if
+    // not found. Matching by id — not a cached array index — survives reordering.
+    private findInputOffset(text: string): number | undefined {
+        const root = jsonc.parseTree(text);
+        const inputs = root && jsonc.findNodeAtLocation(root, this.inputsPath);
+        const match = inputs?.children?.find((node) => jsonc.findNodeAtLocation(node, ['id'])?.value === this.id);
+        return match?.offset;
     }
 
     dispose() {
         this.disposables.forEach((disposable) => disposable.dispose());
     }
 
+    /** Resolve the selectable values via the delegate. `force` re-runs a command param. */
     getValues(force = false): Promise<DisplayableValue[] | undefined> {
         return this.valuesDelegate.getValues(force);
     }
 
+    /** The tree-view icon for this param's type (array vs. command). */
     getIcon(): ThemeIcon {
         return this.valuesDelegate.getIcon();
     }

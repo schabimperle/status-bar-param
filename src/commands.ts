@@ -5,7 +5,6 @@ import { Param } from './param';
 import { CommandValuesDelegate } from './valuesDelegate';
 import { Strings } from './strings';
 import { ExtensionConfig } from './config';
-import { ArrayOptions, ArrayValue, CommandOptions } from './schemas';
 import * as prompts from './prompts';
 import * as log from './log';
 
@@ -16,7 +15,7 @@ import * as log from './log';
 
 /* ── global commands ── */
 
-// clear every stored selection and re-evaluate all params
+/** Clear every stored selection (only this extension's keys) and re-evaluate all params. */
 export function onReset(config: ExtensionConfig, jsonFiles: JsonFile[]) {
     log.debug('onReset');
     // only clear this extension's own selection keys (`statusBarParam.*`), not the
@@ -30,8 +29,8 @@ export function onReset(config: ExtensionConfig, jsonFiles: JsonFile[]) {
 
 /* ── json file commands ── */
 
-// interactively create a parameter and write it to a json file
-export async function onAddParam(jsonFiles: JsonFile[], jsonFile?: JsonFile) {
+/** Interactively create a parameter and write it to a json file. */
+export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[], jsonFile?: JsonFile) {
     log.debug('onAddParam');
 
     // select the target file if the command wasn't invoked on a specific one
@@ -50,32 +49,23 @@ export async function onAddParam(jsonFiles: JsonFile[], jsonFile?: JsonFile) {
     if (!id) {
         return;
     }
-    let args: ArrayValue[] | ArrayOptions | CommandOptions | undefined = await prompts.promptParamArgs(type, jsonFile.getDefaultCwd());
-    if (args === undefined) {
+    // the advanced step phrases its status-bar toggles relative to the current
+    // global defaults, and folds in the sample-task choice (skipped for launch.json)
+    const result = await prompts.promptParamArgs(type, {
+        showNamesDefault: config.showNames,
+        showSelectionsDefault: config.showSelections,
+        offerSampleTask: !jsonFile.isLaunchJson,
+    });
+    if (!result) {
         return;
     }
 
-    const canPickMany = await prompts.promptCanPickMany();
-    if (canPickMany === undefined) {
-        return;
-    }
-    if (canPickMany) {
-        if (args instanceof Array) {
-            args = { values: args };
-        }
-        args.canPickMany = true;
-    }
-    const addSampleTask = await prompts.promptAddSampleTask(jsonFile.isLaunchJson);
-    if (addSampleTask === undefined) {
-        return;
-    }
-
-    await jsonFile.addParam(id, args, addSampleTask);
+    await jsonFile.addParam(id, result.args, result.addSampleTask);
 }
 
 /* ── param commands ── */
 
-// pick value(s) for a parameter
+/** Pick value(s) for a parameter via a quick pick, then persist the selection. */
 export async function onSelect(param: Param) {
     log.debug('onSelect');
     // force a fresh run so the picker reflects the current command output
@@ -112,29 +102,29 @@ export async function onSelect(param: Param) {
     }
 }
 
-// open the json file at the parameter's definition
+/** Open the json file at the parameter's definition. */
 export async function onEdit(param: Param) {
     log.debug('onEdit');
     await param.reveal();
 }
 
-// copy the input/command retrieval string of a parameter
+/** Copy a parameter's `${input:…}` or `${command:…}` reference to the clipboard. */
 export async function onCopyCmd(param: Param) {
     log.debug('onCopyCmd');
     const items: (QuickPickItem & { target: 'input' | 'command' })[] = [
         {
             target: 'input',
-            label: 'Copy Input String',
+            label: 'Copy Input Reference',
             description: 'To use only in the vscode configuration file where the parameter is defined.',
         },
         {
             target: 'command',
-            label: 'Copy Command String',
+            label: 'Copy Command Reference',
             description: 'To use across vscode configuration files.',
         },
     ];
     const copyType = await window.showQuickPick(items, {
-        placeHolder: 'Select the string you want to copy.',
+        placeHolder: 'Select the reference you want to copy.',
     });
     if (copyType?.target === 'input') {
         await env.clipboard.writeText(`\${input:${param.id}}`);
@@ -143,7 +133,7 @@ export async function onCopyCmd(param: Param) {
     }
 }
 
-// remove a parameter from its json file
+/** Remove a parameter from its json file (after confirmation) and drop its selection. */
 export async function onDelete(param: Param) {
     log.debug('onDelete');
     const items: (QuickPickItem & { confirmed: boolean })[] = [
@@ -154,10 +144,19 @@ export async function onDelete(param: Param) {
     if (selection?.confirmed) {
         try {
             await param.jsonFile.mutate((current) => {
-                // delete from the param's own inputs section (a .code-workspace has
-                // separate tasks.inputs and launch.inputs), not a recomputed default
-                const jsoncInputsPath = [...param.inputsPath, param.jsonArrayIndex];
-                return jsonc.applyEdits(current, jsonc.modify(current, jsoncInputsPath, undefined, { formattingOptions: {} }));
+                // locate the input by its (unique) id in the *current* text rather
+                // than a cached array index: the file may have changed since the tree
+                // was built, and a stale index would delete the wrong entry. Search
+                // the param's own inputs section (a .code-workspace has separate
+                // tasks.inputs and launch.inputs).
+                const root = jsonc.parseTree(current);
+                const inputs = root && jsonc.findNodeAtLocation(root, param.inputsPath);
+                const index = inputs?.children?.findIndex((node) => jsonc.findNodeAtLocation(node, ['id'])?.value === param.id) ?? -1;
+                if (index < 0) {
+                    return current; // already gone; nothing to delete
+                }
+                const formattingOptions = JsonFile.detectFormatting(current);
+                return jsonc.applyEdits(current, jsonc.modify(current, [...param.inputsPath, index], undefined, { formattingOptions }));
             });
             // drop the persisted selection so it doesn't linger for a removed param
             await param.deleteStoredSelection();

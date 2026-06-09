@@ -24,6 +24,14 @@ interface JsoncPaths {
     inputsPath: JSONPath;
 }
 
+/**
+ * One watched JSON file that may contribute parameters (a workspace
+ * `tasks.json`/`launch.json`, a `.code-workspace`, or the user's global
+ * `tasks.json`). Parses its `inputs` into {@link Param}s, keeps them in sync with
+ * file changes, and writes new parameters back while preserving formatting. Reads
+ * the user (global) tasks.json via the `tasks` configuration so it works from a
+ * remote extension host (see {@link useDocumentIO}).
+ */
 export class JsonFile implements Disposable {
     // params are spaced this far below the file's base priority (decremented by 1
     // per file). Assumes < 1000 params/file; beyond that they interleave with the
@@ -306,7 +314,7 @@ export class JsonFile implements Disposable {
             // read the user-level inputs via the `tasks` config (works from a remote host)
             const inputs = workspace.getConfiguration('tasks').inspect<unknown[]>('inputs')?.globalValue;
             if (Array.isArray(inputs)) {
-                inputs.forEach((input, i) => this.addParamFromValue(input, ['inputs'], 0, i));
+                inputs.forEach((input) => this.addParamFromValue(input, ['inputs']));
             }
         } else if (fileContent !== undefined) {
             const rootNode = jsonc.parseTree(fileContent);
@@ -330,11 +338,11 @@ export class JsonFile implements Disposable {
         if (!inputs?.children) {
             return;
         }
-        inputs.children.forEach((inputNode, i) => this.addParamFromValue(jsonc.getNodeValue(inputNode), inputsPath, inputNode.offset, i));
+        inputs.children.forEach((inputNode) => this.addParamFromValue(jsonc.getNodeValue(inputNode), inputsPath));
     }
 
-    // build a Param from a parsed `input` value (jsonOffset is 0 for config reads)
-    private addParamFromValue(input: unknown, inputsPath: JSONPath, jsonOffset: number, index: number) {
+    // build a Param from a parsed `input` value
+    private addParamFromValue(input: unknown, inputsPath: JSONPath) {
         // derive from the file's priority so params show in order (see PRIORITY_STEP)
         const paramPriority = this.priority - this.params.length * JsonFile.PRIORITY_STEP;
         // ignore inputs not intended for this extension
@@ -364,7 +372,7 @@ export class JsonFile implements Disposable {
         } else {
             return;
         }
-        const param = new Param(input.id, input.command, options, paramPriority, jsonOffset, index, inputsPath, this, valuesDelegate, this.config);
+        const param = new Param(input.id, input.command, options, paramPriority, inputsPath, this, valuesDelegate, this.config);
         // a duplicate id means another file's param already owns the retrieval
         // command: drop this one (disposing its status bar item) rather than leaving
         // a non-functional entry in the tree and status bar
@@ -422,11 +430,26 @@ export class JsonFile implements Disposable {
     }
 
     // return `fileContent` with the new input (and optional sample task) added
+    // detect the file's indentation so inserts match it: jsonc-parser's default ({})
+    // emits tabs and re-flows the touched property to column 0, mixing styles in a
+    // space file. Fall back to 4-space (VS Code's default) for a flat/empty file.
+    static detectFormatting(fileContent: string): jsonc.FormattingOptions {
+        const indent = fileContent.match(/\n([ \t]+)\S/)?.[1];
+        if (indent?.startsWith('\t')) {
+            return { tabSize: 4, insertSpaces: false };
+        }
+        if (indent) {
+            return { tabSize: indent.length, insertSpaces: true };
+        }
+        return { tabSize: 4, insertSpaces: true };
+    }
+
     private withNewParam(fileContent: string, id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean): string {
         // the parsed object is read-only scaffolding: it answers "does this key
         // already exist?" so we don't overwrite it. All persisted writes go through
         // jsonc.modify/applyEdits on the string below; mutations to rootNode/tasksRoot
         // here (e.g. `rootNode.tasks = {}`) only track that bookkeeping locally.
+        const formattingOptions = JsonFile.detectFormatting(fileContent);
         let rootNode = jsonc.parse(fileContent);
         if (!rootNode) {
             rootNode = {};
@@ -442,7 +465,7 @@ export class JsonFile implements Disposable {
         }
 
         if (!rootNode.version && !this.isLaunchJson) {
-            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, jsoncPaths.versionPath, '2.0.0', { formattingOptions: {} }));
+            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, jsoncPaths.versionPath, '2.0.0', { formattingOptions }));
         }
         if (addSampleTask) {
             if (!tasksRoot.tasks) {
@@ -452,12 +475,16 @@ export class JsonFile implements Disposable {
             const task = {
                 label: `echo value of ${id}`,
                 type: 'shell',
-                command: `echo \"Current value of ${id} is '\${input:${id}}'\."`,
+                // single-quote so the JSON needs no escaped " (which would distract
+                // from the `${input:...}` reference)
+                command: `echo 'Current value of ${id} is \${input:${id}}.'`,
                 problemMatcher: [],
             };
             // derive the indexed path locally rather than mutating the shared struct
             const taskPath = [...jsoncPaths.tasksPath, tasksRoot.tasks.length];
-            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, taskPath, task, { formattingOptions: {} }));
+            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, taskPath, task, { formattingOptions }));
+            // label the task so it's clear it only demonstrates the parameter
+            fileContent = this.withCommentAboveNode(fileContent, taskPath, `// Sample task demonstrating the use of the '${id}' parameter.`);
         }
         // deliberate asymmetry with getInputsPaths(): a .code-workspace's params are
         // read from both tasks.inputs and launch.inputs, but new ones are always
@@ -465,6 +492,7 @@ export class JsonFile implements Disposable {
         if (!tasksRoot.inputs) {
             tasksRoot.inputs = [];
         }
+        const isFirstInput = tasksRoot.inputs.length === 0;
         const input = {
             id,
             type: 'command',
@@ -472,7 +500,37 @@ export class JsonFile implements Disposable {
             args,
         };
         const inputPath = [...jsoncPaths.inputsPath, tasksRoot.inputs.length];
-        const modifications = jsonc.modify(fileContent, inputPath, input, { formattingOptions: {} });
-        return jsonc.applyEdits(fileContent, modifications);
+        const modifications = jsonc.modify(fileContent, inputPath, input, { formattingOptions });
+        fileContent = jsonc.applyEdits(fileContent, modifications);
+        // one-time hint, above the only configurable property (`args`), that it can
+        // hold either a value array or an options object (command params, advanced
+        // options) discoverable via JSON IntelliSense
+        if (isFirstInput) {
+            const comment =
+                "// 'args' can be an array of values, or an object for command params\n" + '// and advanced options — start typing inside it for IntelliSense.';
+            fileContent = this.withCommentAboveNode(fileContent, [...inputPath, 'args'], comment);
+        }
+        return fileContent;
+    }
+
+    // insert a `// ...` comment (one or more `\n`-separated lines) on its own
+    // line(s) directly above the node at `path`, matching that line's indentation.
+    // The node's offset sits on the line we want (the `{`/`[` of a value, or the
+    // key of `"args": [`), so the comment lands above the whole entry. No-op if the
+    // node isn't found.
+    private withCommentAboveNode(fileContent: string, path: JSONPath, comment: string): string {
+        const tree = jsonc.parseTree(fileContent);
+        const node = tree && jsonc.findNodeAtLocation(tree, path);
+        if (!node) {
+            return fileContent;
+        }
+        const lineStart = fileContent.lastIndexOf('\n', node.offset - 1) + 1;
+        const indent = fileContent.slice(lineStart, node.offset).match(/^[\t ]*/)?.[0] ?? '';
+        // indent every line of the comment so a multi-line tip stays aligned
+        const block = comment
+            .split('\n')
+            .map((line) => indent + line)
+            .join('\n');
+        return fileContent.slice(0, lineStart) + block + '\n' + fileContent.slice(lineStart);
     }
 }
