@@ -1,194 +1,232 @@
 {
-	"name": "status-bar-param",
-	"displayName": "%displayName%",
-	"description": "%description%",
-	"version": "1.6.0",
-	"publisher": "mschababerle",
-	"icon": "images/icon.png",
-	"keywords": [
-		"parameter",
-		"variables",
-		"input",
-		"status bar",
-		"multi-root ready"
-	],
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/Schabimperle/status-bar-param"
-	},
-	"engines": {
-		"vscode": "^1.54.0"
-	},
-	"categories": [
-		"Other"
-	],
-	"contributes": {
-		"viewsContainers": {
-			"activitybar": [
-				{
-					"id": "statusBarParam",
-					"title": "%displayName%",
-					"icon": "images/icon.svg"
-				}
-			]
-		},
-		"views": {
-			"statusBarParam": [
-				{
-					"id": "statusBarParam",
-					"name": "%displayName%"
-				}
-			]
-		},
-		"viewsWelcome": [
-			{
-				"view": "statusBarParam",
-				"contents": "No parameters found.\n[Add Parameter](command:statusBarParam.add)"
-			}
-		],
-		"configuration": {
-			"type": "object",
-			"title": "StatusBarParam",
-			"properties": {
-				"statusBarParam.showNames": {
-					"scope": "resource",
-					"type": "boolean",
-					"default": false,
-					"description": "Show the names of parameters in front of the selected value in the status bar."
-				},
-				"statusBarParam.showSelections": {
-					"scope": "resource",
-					"type": "boolean",
-					"default": true,
-					"description": "Show the selected value of the parameters in the status bar."
-				}
-			}
-		},
-		"commands": [
-			{
-				"command": "statusBarParam.add",
-				"category": "Status Bar Parameter",
-				"title": "Add Parameter",
-				"icon": "$(add)"
-			},
-			{
-				"command": "statusBarParam.select",
-				"category": "Status Bar Parameter",
-				"title": "Change Selection",
-				"icon": "$(kebab-vertical)"
-			},
-			{
-				"command": "statusBarParam.edit",
-				"category": "Status Bar Parameter",
-				"title": "Edit",
-				"icon": "$(edit)"
-			},
-			{
-				"command": "statusBarParam.copyCmd",
-				"category": "Status Bar Parameter",
-				"title": "Copy Retrieval String",
-				"icon": "$(clippy)"
-			},
-			{
-				"command": "statusBarParam.delete",
-				"category": "Status Bar Parameter",
-				"title": "Delete",
-				"icon": "$(close)"
-			}
-		],
-		"menus": {
-			"view/title": [
-				{
-					"command": "statusBarParam.add",
-					"when": "view == statusBarParam",
-					"group": "navigation@2"
-				}
-			],
-			"view/item/context": [
-				{
-					"command": "statusBarParam.add",
-					"group": "inline",
-					"when": "viewItem == JsonFile"
-				},
-				{
-					"command": "statusBarParam.edit",
-					"group": "inline@1",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.copyCmd",
-					"group": "inline@2",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.delete",
-					"group": "inline@3",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.edit",
-					"group": "navigation",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.select",
-					"group": "2_workspace",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.copyCmd",
-					"group": "6_copypath",
-					"when": "viewItem == Param"
-				},
-				{
-					"command": "statusBarParam.delete",
-					"group": "7_modification",
-					"when": "viewItem == Param"
-				}
-			]
-		},
-		"jsonValidation": [
-			{
-				"fileMatch": "tasks.json",
-				"url": "./schemas/tasks_launch_schema.json"
-			},
-			{
-				"fileMatch": "launch.json",
-				"url": "./schemas/tasks_launch_schema.json"
-			},
-			{
-				"fileMatch": "*.code-workspace",
-				"url": "./schemas/code_workspace_schema.json"
-			}
-		]
-	},
-	"activationEvents": [
-		"*"
-	],
-	"main": "./out/src/extension.js",
-	"scripts": {
-		"vscode:prepublish": "npm run compile",
-		"compile": "npx tsc -p ./",
-		"lint": "npx eslint src --ext ts",
-		"watch": "npx tsc -watch -p ./",
-		"pretest": "npm run compile && npm run lint",
-		"test": "node ./out/test/runTest.js"
-	},
-	"devDependencies": {
-		"@types/glob": "^7.1.3",
-		"@types/mocha": "^7.0.2",
-		"@types/node": "^12.20.4",
-		"@types/vscode": "^1.54.0",
-		"@typescript-eslint/eslint-plugin": "^2.34.0",
-		"@typescript-eslint/parser": "^2.34.0",
-		"eslint": "^6.8.0",
-		"glob": "^7.1.6",
-		"mocha": "^7.2.0",
-		"typescript": "^4.1.5",
-		"vscode-test": "^1.5.1"
-	},
-	"dependencies": {
-		"ajv": "^8.0.1",
-		"jsonc-parser": "^2.3.1"
-	}
+  "name": "status-bar-param",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "1.6.0",
+  "publisher": "mschababerle",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "keywords": [
+    "parameter",
+    "variables",
+    "input",
+    "status bar",
+    "multi-root ready"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Schabimperle/status-bar-param"
+  },
+  "engines": {
+    "vscode": "^1.68.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In untrusted workspaces, parameters defined by a shell command are not executed. Array parameters work normally."
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "statusBarParam",
+          "title": "%displayName%",
+          "icon": "images/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "statusBarParam": [
+        {
+          "id": "statusBarParam",
+          "name": "%displayName%"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "statusBarParam",
+        "contents": "No parameters found.\n[Add Parameter](command:statusBarParam.add)"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "StatusBarParam",
+      "properties": {
+        "statusBarParam.showNames": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": false,
+          "description": "Show the names of parameters in front of the selected value in the status bar."
+        },
+        "statusBarParam.showSelections": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "description": "Show the selected value of the parameters in the status bar."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "statusBarParam.add",
+        "category": "Status Bar Parameter",
+        "title": "Add Parameter",
+        "icon": "$(add)"
+      },
+      {
+        "command": "statusBarParam.resetSelections",
+        "category": "Status Bar Parameter",
+        "title": "Reset Selections",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "statusBarParam.select",
+        "category": "Status Bar Parameter",
+        "title": "Change Selection",
+        "icon": "$(kebab-vertical)"
+      },
+      {
+        "command": "statusBarParam.edit",
+        "category": "Status Bar Parameter",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "statusBarParam.copyCmd",
+        "category": "Status Bar Parameter",
+        "title": "Copy Retrieval String",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "statusBarParam.delete",
+        "category": "Status Bar Parameter",
+        "title": "Delete",
+        "icon": "$(close)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "statusBarParam.add",
+          "when": "view == statusBarParam",
+          "group": "navigation@2"
+        },
+        {
+          "command": "statusBarParam.resetSelections",
+          "when": "view == statusBarParam",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "statusBarParam.add",
+          "group": "inline",
+          "when": "viewItem == JsonFile"
+        },
+        {
+          "command": "statusBarParam.edit",
+          "group": "inline@1",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.copyCmd",
+          "group": "inline@2",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.delete",
+          "group": "inline@3",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.edit",
+          "group": "navigation",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.select",
+          "group": "2_workspace",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.copyCmd",
+          "group": "6_copypath",
+          "when": "viewItem == Param"
+        },
+        {
+          "command": "statusBarParam.delete",
+          "group": "7_modification",
+          "when": "viewItem == Param"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "tasks.json",
+        "url": "./dist/schemas/tasks_launch_schema.json"
+      },
+      {
+        "fileMatch": "launch.json",
+        "url": "./dist/schemas/tasks_launch_schema.json"
+      },
+      {
+        "fileMatch": "*.code-workspace",
+        "url": "./dist/schemas/code_workspace_schema.json"
+      }
+    ]
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "npx tsc -p ./ && npm run copy-schemas -- out",
+    "copy-schemas": "node ./scripts/copy-schemas.js",
+    "bundle": "npm run compile && npx esbuild ./src/extension.ts --bundle --platform=node --format=cjs --main-fields=module,main --external:vscode --outfile=dist/extension.js --sourcemap --sources-content=false && npm run copy-schemas -- dist",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "npx eslint src",
+    "format": "npx prettier --write \"src/**/*.ts\"",
+    "format:check": "npx prettier --check \"src/**/*.ts\"",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "pretest:integration": "npm run bundle && node ./scripts/ensure-vscode-test-libs.js",
+    "test:integration": "node ./out/test/integration/runTest.js",
+    "test:integration:remote": "npm run bundle && node ./out/test/integration/remoteRunTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^16.18.0",
+    "@types/vscode": "~1.68.0",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "jest": "^30.4.2",
+    "jest-mock-vscode": "^3.0.5",
+    "ovsx": "^1.0.0",
+    "prettier": "^3.8.3",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "jsonc-parser": "^3.3.1"
+  }
 }

@@ -1,10 +1,28 @@
 .vscode/**
 .vscode-test/**
-out/test/**
+.github/**
+scripts/**
 src/**
+out/**
+node_modules/**
+coverage/**
+jest.config.js
 .gitignore
+.yarnrc
+eslint.config.mjs
+CONTRIBUTING.md
+plan.md
 vsc-extension-quickstart.md
+package-lock.json
 **/tsconfig.json
 **/.eslintrc.json
 **/*.map
 **/*.ts
+*.vsix
+*.zip
+
+# dev-only config that shouldn't ship to the Marketplace
+.editorconfig
+
+# unused 1.15 MB GIF (not referenced by the README); keep it out of the .vsix
+images/full_demo.gif
