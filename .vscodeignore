@@ -23,6 +23,10 @@ package-lock.json
 
 # dev-only config that shouldn't ship to the Marketplace
 .editorconfig
+demo-workspace/**
 
-# unused 1.15 MB GIF (not referenced by the README); keep it out of the .vsix
-images/full_demo.gif
+# the README now uses the single guided full_demo.gif; the per-step GIFs are
+# kept in the repo but not shipped in the .vsix
+images/demo_add.gif
+images/demo_select.gif
+images/demo_retrieve.gif

@@ -1,0 +1,22 @@
+{
+  // Clean chrome for deterministic, distraction-free demo recordings.
+  "window.title": "${rootNameShort}",
+  "workbench.startupEditor": "none",
+  "workbench.activityBar.location": "default",
+  "workbench.statusBar.visible": true,
+  "editor.minimap.enabled": false,
+  "breadcrumbs.enabled": false,
+  "workbench.tips.enabled": false,
+  "workbench.colorTheme": "Dark Modern",
+  "editor.fontSize": 15,
+  "terminal.integrated.fontSize": 14,
+  "window.menuBarVisibility": "hidden",
+  "explorer.openEditors.visible": 0,
+  "git.openRepositoryInParentFolders": "never",
+  // Deterministic in-place editing in the demo: no auto-inserted quotes/brackets
+  // when the driver retypes the sample task's command line.
+  "editor.autoClosingBrackets": "never",
+  "editor.autoClosingQuotes": "never",
+  "editor.autoSurround": "never",
+  "editor.suggestOnTriggerCharacters": false
+}

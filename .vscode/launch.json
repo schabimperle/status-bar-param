@@ -6,7 +6,20 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"name": "Run Extension",
+			"name": "Run Extension (clean, no other extensions)",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--disable-extensions"
+			],
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js"
+			],
+			"preLaunchTask": "bundle"
+		},
+		{
+			"name": "Run Extension (with other extensions)",
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
