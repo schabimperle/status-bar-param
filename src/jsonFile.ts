@@ -1,4 +1,17 @@
-import { workspace, commands, window, Uri, WorkspaceFolder, Disposable, RelativePattern, WorkspaceEdit, Range, TextDocument, FileSystemError } from 'vscode';
+import {
+    workspace,
+    commands,
+    window,
+    Uri,
+    WorkspaceFolder,
+    Disposable,
+    RelativePattern,
+    WorkspaceEdit,
+    Range,
+    TextDocument,
+    FileSystemError,
+    ConfigurationTarget,
+} from 'vscode';
 import * as jsonc from 'jsonc-parser';
 import { JSONPath } from 'jsonc-parser';
 import { Param } from './param';
@@ -183,7 +196,10 @@ export class JsonFile implements Disposable {
     }
 
     // have the workbench open (creating if needed) the real user tasks.json and
-    // return its document; the open event arrives asynchronously after the command
+    // return its document; the open event arrives asynchronously after the command.
+    // Only used for editing an EXISTING user param (delete/reveal): adding a new one
+    // writes via the `tasks` config instead, so a missing file never triggers the
+    // workbench's "create tasks.json from template" picker (see addParamToUserTasks).
     private openUserDataDocument(): Promise<TextDocument> {
         const isUserTasks = (doc: TextDocument) => doc.uri.scheme === 'vscode-userdata' && path.posix.basename(doc.uri.path) === 'tasks.json';
         const open = workspace.textDocuments.find(isUserTasks);
@@ -418,15 +434,90 @@ export class JsonFile implements Disposable {
     // write a new parameter (and optionally a sample task) into this json file.
     // the interactive gathering of id/args/addSampleTask lives in commands.ts.
     async addParam(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean) {
-        // set before mutating so the re-parse triggered by the write reveals it
-        this.paramIdToEditOnCreate = id;
         try {
+            if (this.useDocumentIO) {
+                // The user (global) tasks.json has no openable uri; the only way to open
+                // it is the workbench's `openUserTasks` command, which pops VS Code's
+                // "create tasks.json from template" picker whenever the file has no
+                // tasks defined (and the picker overwrites the file, dropping our
+                // inputs). So we add params by writing the `tasks` configuration (the
+                // same channel inputs are read from) instead of opening the file, and
+                // make sure the file is never left task-less. The re-parse on the
+                // config change shows the new param; no reveal, since opening the file
+                // is exactly what we are avoiding.
+                await this.addParamToUserTasks(id, args, addSampleTask);
+                return;
+            }
+            // set before mutating so the re-parse triggered by the write reveals it
+            this.paramIdToEditOnCreate = id;
             await this.mutate((current) => this.withNewParam(current, id, args, addSampleTask));
         } catch (err) {
             console.error(err);
             this.paramIdToEditOnCreate = '';
             window.showErrorMessage(`Failed to add parameter '${id}': ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+
+    // add a parameter to the user (global) tasks.json via the `tasks` configuration,
+    // appending to the inputs/tasks read from the Global scope (VS Code fills in the
+    // file's `version` itself). Writing config rather than editing the opened document
+    // avoids the template picker; the trade-off is no preserved formatting / tip comment.
+    private async addParamToUserTasks(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean) {
+        const tasksConfig = workspace.getConfiguration('tasks');
+        const tasks = [...(tasksConfig.inspect<unknown[]>('tasks')?.globalValue ?? [])];
+        // VS Code's task tooling treats a task-less tasks.json as "unconfigured": opening
+        // it (our edit/reveal, or the user's own "Open User Tasks") then prompts to create
+        // one from a template, which overwrites the file and loses our inputs. The user
+        // file is only reachable through that command, so it must never be left task-less
+        // — add the demo task when the file would otherwise have none.
+        // write tasks before inputs so a failure midway leaves the file with a task
+        // (still openable without the picker) rather than a task-less, inputs-only file
+        const forcedTask = !addSampleTask && tasks.length === 0;
+        if (addSampleTask || forcedTask) {
+            tasks.push(JsonFile.buildSampleTask(id));
+            await tasksConfig.update('tasks', tasks, ConfigurationTarget.Global);
+        }
+        // re-read from a fresh config snapshot (the one above predates the tasks write)
+        // to narrow the window for clobbering a concurrent external `inputs` change
+        const inputs = [...(workspace.getConfiguration('tasks').inspect<unknown[]>('inputs')?.globalValue ?? [])];
+        inputs.push(JsonFile.buildInput(id, args));
+        await workspace.getConfiguration('tasks').update('inputs', inputs, ConfigurationTarget.Global);
+        if (forcedTask) {
+            window.showInformationMessage(
+                `Added a sample task for '${id}' to your user tasks.json — VS Code needs at least one task there, ` +
+                    `otherwise opening the file prompts to create one from a template.`,
+            );
+        }
+    }
+
+    // remove a parameter's input from the user (global) tasks.json via the `tasks`
+    // configuration. Like addParamToUserTasks, this edits config instead of opening the
+    // file, so deleting the last param never drops the file into the task-less state
+    // that makes the next openUserTasks pop the template picker. The user tasks.json is
+    // never a .code-workspace, so its inputs are always the top-level `inputs` array.
+    async deleteParamFromUserTasks(id: string): Promise<void> {
+        const tasksConfig = workspace.getConfiguration('tasks');
+        const inputs = (tasksConfig.inspect<Array<{ id?: string }>>('inputs')?.globalValue ?? []).filter((input) => input?.id !== id);
+        await tasksConfig.update('inputs', inputs, ConfigurationTarget.Global);
+    }
+
+    // the extension's input entry: a command input that resolves via this param's
+    // generated retrieval command. Shared by the text-edit and config write paths.
+    private static buildInput(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions) {
+        return { id, type: 'command', command: `${Strings.EXTENSION_ID}.get.${id}`, args };
+    }
+
+    // a runnable example task that echoes the param's value, to show how `${input:id}`
+    // is used. Shared by the text-edit and config write paths.
+    private static buildSampleTask(id: string) {
+        return {
+            label: `echo value of ${id}`,
+            type: 'shell',
+            // single-quote so the JSON needs no escaped " (which would distract
+            // from the `${input:...}` reference)
+            command: `echo 'Current value of ${id} is \${input:${id}}.'`,
+            problemMatcher: [],
+        };
     }
 
     // return `fileContent` with the new input (and optional sample task) added
@@ -471,18 +562,9 @@ export class JsonFile implements Disposable {
             if (!tasksRoot.tasks) {
                 tasksRoot.tasks = [];
             }
-            // add example task
-            const task = {
-                label: `echo value of ${id}`,
-                type: 'shell',
-                // single-quote so the JSON needs no escaped " (which would distract
-                // from the `${input:...}` reference)
-                command: `echo 'Current value of ${id} is \${input:${id}}.'`,
-                problemMatcher: [],
-            };
             // derive the indexed path locally rather than mutating the shared struct
             const taskPath = [...jsoncPaths.tasksPath, tasksRoot.tasks.length];
-            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, taskPath, task, { formattingOptions }));
+            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, taskPath, JsonFile.buildSampleTask(id), { formattingOptions }));
             // label the task so it's clear it only demonstrates the parameter
             fileContent = this.withCommentAboveNode(fileContent, taskPath, `// Sample task demonstrating the use of the '${id}' parameter.`);
         }
@@ -493,12 +575,7 @@ export class JsonFile implements Disposable {
             tasksRoot.inputs = [];
         }
         const isFirstInput = tasksRoot.inputs.length === 0;
-        const input = {
-            id,
-            type: 'command',
-            command: `${Strings.EXTENSION_ID}.get.${id}`,
-            args,
-        };
+        const input = JsonFile.buildInput(id, args);
         const inputPath = [...jsoncPaths.inputsPath, tasksRoot.inputs.length];
         const modifications = jsonc.modify(fileContent, inputPath, input, { formattingOptions });
         fileContent = jsonc.applyEdits(fileContent, modifications);

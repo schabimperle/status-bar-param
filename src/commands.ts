@@ -143,21 +143,28 @@ export async function onDelete(param: Param) {
     const selection = await window.showQuickPick(items, { placeHolder: `Do you really want to delete ${param.id}?` });
     if (selection?.confirmed) {
         try {
-            await param.jsonFile.mutate((current) => {
-                // locate the input by its (unique) id in the *current* text rather
-                // than a cached array index: the file may have changed since the tree
-                // was built, and a stale index would delete the wrong entry. Search
-                // the param's own inputs section (a .code-workspace has separate
-                // tasks.inputs and launch.inputs).
-                const root = jsonc.parseTree(current);
-                const inputs = root && jsonc.findNodeAtLocation(root, param.inputsPath);
-                const index = inputs?.children?.findIndex((node) => jsonc.findNodeAtLocation(node, ['id'])?.value === param.id) ?? -1;
-                if (index < 0) {
-                    return current; // already gone; nothing to delete
-                }
-                const formattingOptions = JsonFile.detectFormatting(current);
-                return jsonc.applyEdits(current, jsonc.modify(current, [...param.inputsPath, index], undefined, { formattingOptions }));
-            });
+            if (param.jsonFile.useDocumentIO) {
+                // the user (global) tasks.json is edited via the `tasks` config, not by
+                // opening it — same as adding — so removing the last param never leaves
+                // a task-less file that would make the next open pop the template picker
+                await param.jsonFile.deleteParamFromUserTasks(param.id);
+            } else {
+                await param.jsonFile.mutate((current) => {
+                    // locate the input by its (unique) id in the *current* text rather
+                    // than a cached array index: the file may have changed since the tree
+                    // was built, and a stale index would delete the wrong entry. Search
+                    // the param's own inputs section (a .code-workspace has separate
+                    // tasks.inputs and launch.inputs).
+                    const root = jsonc.parseTree(current);
+                    const inputs = root && jsonc.findNodeAtLocation(root, param.inputsPath);
+                    const index = inputs?.children?.findIndex((node) => jsonc.findNodeAtLocation(node, ['id'])?.value === param.id) ?? -1;
+                    if (index < 0) {
+                        return current; // already gone; nothing to delete
+                    }
+                    const formattingOptions = JsonFile.detectFormatting(current);
+                    return jsonc.applyEdits(current, jsonc.modify(current, [...param.inputsPath, index], undefined, { formattingOptions }));
+                });
+            }
             // drop the persisted selection so it doesn't linger for a removed param
             await param.deleteStoredSelection();
         } catch (err) {

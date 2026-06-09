@@ -137,6 +137,29 @@ const localChecks: Check[] = [
             assert.ok(readFileSync(userTasksPath, 'utf8').includes(marker), 'edit was not persisted to the local user tasks.json');
         },
     },
+    {
+        // the primitive the add-param path now relies on: writing inputs through the
+        // `tasks` configuration reaches the user tasks.json WITHOUT opening it (so a
+        // missing file never triggers the workbench's create-from-template picker).
+        name: 'persists a new input to the user tasks.json via the tasks configuration',
+        fn: async () => {
+            const userTasksPath = process.env.SBP_USER_TASKS!;
+            assert.ok(userTasksPath, 'SBP_USER_TASKS not set by runTest.ts');
+
+            const cfg = vscode.workspace.getConfiguration('tasks');
+            const marker = `cfgmarker_${Date.now()}`;
+            const inputs = [...(cfg.inspect<unknown[]>('inputs')?.globalValue ?? [])];
+            inputs.push({ id: marker, type: 'command', command: `statusBarParam.get.${marker}`, args: ['z'] });
+            await cfg.update('inputs', inputs, vscode.ConfigurationTarget.Global);
+
+            await waitFor(
+                () => Promise.resolve(readFileSync(userTasksPath, 'utf8')),
+                (text) => text.includes(marker),
+                LOCAL_WAIT_MS,
+            );
+            assert.ok(readFileSync(userTasksPath, 'utf8').includes(marker), 'config write was not persisted to the user tasks.json');
+        },
+    },
 ];
 
 export async function run(): Promise<void> {

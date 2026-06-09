@@ -211,6 +211,19 @@ describe('onDelete', () => {
         expect(param.deleteStoredSelection).toHaveBeenCalled();
     });
 
+    it('deletes a user (global) tasks param via the tasks config, not by opening the file', async () => {
+        // useDocumentIO files must be edited through the `tasks` config so deleting the
+        // last param never leaves a task-less file that re-triggers the template picker
+        showQuickPick.mockResolvedValueOnce({ confirmed: true });
+        const deleteParamFromUserTasks = jest.fn();
+        const mutate = jest.fn();
+        const param = deletableParam({ jsonFile: { useDocumentIO: true, deleteParamFromUserTasks, mutate } });
+        await commands.onDelete(param);
+        expect(deleteParamFromUserTasks).toHaveBeenCalledWith('myId');
+        expect(mutate).not.toHaveBeenCalled();
+        expect(param.deleteStoredSelection).toHaveBeenCalled();
+    });
+
     it('does NOT delete when the user picks "No"', async () => {
         showQuickPick.mockResolvedValueOnce({ confirmed: false });
         const param = deletableParam();

@@ -605,6 +605,114 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
         expect(doc.save).toHaveBeenCalled();
     });
 
+    // a mock `tasks` config whose Global values come from `seed`; returns the update spy
+    function mockTasksConfig(seed: { inputs?: unknown[]; tasks?: unknown[]; version?: string } = {}) {
+        const update = jest.fn().mockResolvedValue(undefined);
+        const getConfiguration = jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+            inspect: (key: string) => ({ globalValue: (seed as Record<string, unknown>)[key] }),
+            update,
+        } as unknown as vscode.WorkspaceConfiguration);
+        return { update, restore: () => getConfiguration.mockRestore() };
+    }
+
+    // Regression: opening the user tasks.json to edit it (via the workbench's
+    // openUserTasks) pops VS Code's "create tasks.json from template" picker whenever
+    // the file has no tasks — confusing, and the picker overwrites our inputs. Adding a
+    // param must therefore NOT open the file: it writes the `tasks` configuration (the
+    // channel its inputs are read from), which creates/updates the file silently.
+    it('adds a param to the user tasks file via the tasks config, never opening it (no template picker)', async () => {
+        const { update, restore } = mockTasksConfig({ tasks: [{ label: 'existing' }] });
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.addParam('myId', ['a', 'b'], false);
+
+            // the input is appended at Global scope (which materializes the file)...
+            expect(update).toHaveBeenCalledWith(
+                'inputs',
+                [expect.objectContaining({ id: 'myId', type: 'command', args: ['a', 'b'] })],
+                vscode.ConfigurationTarget.Global,
+            );
+            // ...and neither the template-prompting open command nor a document edit is used
+            expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.tasks.openUserTasks');
+            expect(applyEdit).not.toHaveBeenCalled();
+        } finally {
+            restore();
+        }
+    });
+
+    it('appends the new input/sample task to the existing user-level config values', async () => {
+        const existingInputs = [{ id: 'old' }];
+        const existingTasks = [{ label: 'old task' }];
+        const { update, restore } = mockTasksConfig({ inputs: existingInputs, tasks: existingTasks, version: '2.0.0' });
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.addParam('myId', ['a'], true);
+
+            // version is left to VS Code (never written); tasks/inputs are appended to
+            expect(update).not.toHaveBeenCalledWith('version', expect.anything(), expect.anything());
+            expect(update).toHaveBeenCalledWith(
+                'tasks',
+                [...existingTasks, expect.objectContaining({ label: 'echo value of myId', type: 'shell' })],
+                vscode.ConfigurationTarget.Global,
+            );
+            expect(update).toHaveBeenCalledWith('inputs', [...existingInputs, expect.objectContaining({ id: 'myId' })], vscode.ConfigurationTarget.Global);
+        } finally {
+            restore();
+        }
+    });
+
+    // VS Code prompts for a template when the user tasks.json has no tasks, so a
+    // task-less file must never be left behind: add the demo task even when the user
+    // declined it, and tell them why.
+    it('forces a sample task when the user tasks file would otherwise have none', async () => {
+        const info = jest.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+        const { update, restore } = mockTasksConfig({}); // empty: no tasks at all
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.addParam('myId', ['a'], false); // user did NOT ask for a sample task
+
+            expect(update).toHaveBeenCalledWith(
+                'tasks',
+                [expect.objectContaining({ label: 'echo value of myId', type: 'shell' })],
+                vscode.ConfigurationTarget.Global,
+            );
+            expect(info).toHaveBeenCalled();
+        } finally {
+            restore();
+            info.mockRestore();
+        }
+    });
+
+    it('does not force a sample task when the user tasks file already has tasks', async () => {
+        const info = jest.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+        const { update, restore } = mockTasksConfig({ tasks: [{ label: 'existing' }] });
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.addParam('myId', ['a'], false);
+
+            expect(update).not.toHaveBeenCalledWith('tasks', expect.anything(), expect.anything());
+            expect(update).toHaveBeenCalledWith('inputs', expect.anything(), vscode.ConfigurationTarget.Global);
+            expect(info).not.toHaveBeenCalled();
+        } finally {
+            restore();
+            info.mockRestore();
+        }
+    });
+
+    // deleting must also avoid opening the file (same picker hazard); it filters the
+    // input out of the tasks config so removing the last param keeps the file task-bearing.
+    it('deletes a user-tasks param by filtering it out of the tasks config inputs', async () => {
+        const keep = { id: 'keep', type: 'command', command: 'x', args: ['z'] };
+        const { update, restore } = mockTasksConfig({ inputs: [{ id: 'myId' }, keep], tasks: [{ label: 't' }] });
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.deleteParamFromUserTasks('myId');
+            expect(update).toHaveBeenCalledWith('inputs', [keep], vscode.ConfigurationTarget.Global);
+        } finally {
+            restore();
+        }
+    });
+
     it('mutate rejects and frees the listener if the user tasks file never opens', async () => {
         jest.useFakeTimers();
         try {
