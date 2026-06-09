@@ -18,9 +18,36 @@ Development Host with the extension loaded.
 - `master` — the published Marketplace version. Don't commit here directly.
 - `develop` — active development. Branch from it and open PRs against it.
 
-Releases are cut by bumping the version with `npm version` and pushing the
-resulting `v*` tag, which triggers `.github/workflows/release.yml` to package and
-publish to the VS Marketplace and Open VSX.
+## Releasing
+
+Releases are tag-driven: pushing a `v*` tag triggers
+`.github/workflows/release.yml`, which re-runs the release-critical checks
+(`lint`, `format:check`, `test:coverage`, `vsce package`), then publishes the
+packaged `.vsix` to the VS Marketplace and Open VSX and creates a GitHub Release.
+
+To cut a release, from the branch you want to ship:
+
+```bash
+npm version <patch|minor|major>   # bumps package.json + package-lock.json, commits, tags vX.Y.Z
+git push --follow-tags            # pushes the commit AND the tag
+```
+
+Notes:
+
+- **Use `npm version` — don't hand-edit the version.** It bumps `package.json`
+  *and* `package-lock.json` together and creates the matching `vX.Y.Z` tag in one
+  step, keeping the project version consistent; the release job's first step
+  verifies the tag equals `package.json`'s version. If a version was already
+  hand-edited, re-sync the lock before tagging with
+  `npm version <x.y.z> --allow-same-version --no-git-tag-version`, then commit
+  both files and tag manually.
+- **Make sure the branch's CI is green before tagging.** The release job re-runs
+  only the fast gates (`lint`, `format:check`, `test:coverage`, `vsce package`)
+  and the tag/version check — it does **not** re-run the integration or
+  remote-smoke jobs, nor does it check the branch's CI status. So a tag whose
+  commit passed only those lighter checks can still publish; confirm the full CI
+  run is green first.
+- Publishing needs the `VSCE_PAT` and `OVSX_PAT` repository secrets.
 
 ## Checks (must stay green)
 
