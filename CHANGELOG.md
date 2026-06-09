@@ -2,6 +2,19 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [1.7.0]
+
+- Added reliable support for parameters in the global user `tasks.json`, including in remote windows. Adding or removing a user-tasks parameter no longer triggers VS Code's "create tasks.json from template" picker.
+- Reworked the add-parameter wizard: after the core steps (target file, type, id, values/command) an optional multi-select offers the advanced options — display labels, initial selection, status-bar name/value visibility, a command's working directory/separator, and a sample task — where selecting none keeps the defaults. When adding a parameter to a configuration file, a one-time inline comment also points to JSON IntelliSense for editing the `args` object directly.
+- Preserved the existing indentation of a configuration file when inserting or editing a parameter, instead of re-flowing the touched properties.
+- Fixed the status-bar coloring so a parameter with a selected value stands out while an empty one is dimmed (previously the inactive color could appear brighter, and an all-whitespace value rendered as active).
+- Fixed editing a parameter jumping the cursor to the wrong position (now located by parameter id in the current document text), including in the user `tasks.json`.
+- Fixed a custom command separator typed as an escape sequence (e.g. `\n`, `\t`) being written literally and never matching; escapes are now interpreted.
+- Renamed the "Copy Retrieval String" command to "Copy Reference".
+- Replaced the per-step demo GIFs with a single guided walkthrough (add → select → use in a task) and overhauled the README.
+- Added an MIT license and project documentation (CONTRIBUTING, SECURITY).
+- Internal: restructured the extension into modules, hardened core logic, and added a full unit, integration, and remote smoke-test suite plus CI.
+
 ## [1.6.0]
 
 - Added parsing the 'initialSelection' value from the argument section of parameters, which can be used to set an initial selection.
