@@ -209,11 +209,11 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^16.18.0",
+    "@types/node": "^25.9.2",
     "@types/vscode": "~1.68.0",
-    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.60.1",
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.0",
     "eslint": "^10.4.1",
@@ -222,7 +222,7 @@
     "jest-mock-vscode": "^3.0.5",
     "ovsx": "^1.0.0",
     "playwright": "^1.60.0",
-    "prettier": "^3.8.3",
+    "prettier": "^3.8.4",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
   },
