@@ -17,6 +17,17 @@ updates:
       # engine up. Stay on 3.x while we target VS Code 1.68.
       - dependency-name: "jest-mock-vscode"
         update-types: ["version-update:semver-major"]
+      # @types/node must track the Node bundled with the supported VS Code
+      # (engines.vscode ^1.68.0 -> Electron 17 -> Node 16). A higher major lets the
+      # compiler accept Node APIs missing at runtime. Stay on 16.x; raise it by hand
+      # together with engines.vscode when bumping the VS Code floor.
+      - dependency-name: "@types/node"
+        update-types:
+          ["version-update:semver-minor", "version-update:semver-major"]
+      # @vscode/test-electron 3.x requires Node >=22, out of step with the Node 16
+      # runtime target. Stay on 2.x while we target VS Code 1.68.
+      - dependency-name: "@vscode/test-electron"
+        update-types: ["version-update:semver-major"]
     groups:
       # batch low-risk dev tooling bumps into one PR to reduce noise
       dev-dependencies:
