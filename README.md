@@ -2,10 +2,10 @@
 
 Add selectable parameters to the status bar (bottom of the window) and reuse the
 chosen value across your VS Code configuration files. Pick a value once in the
-bar, and every task, launch config, or workspace input that references the
+bar, and every task, launch config, or `.code-workspace` entry that references the
 parameter uses it.
 
-![Demo](./images/full_demo.gif)
+![Demo: add, select, and use a status-bar parameter](./images/full_demo.gif)
 
 The demo walks through the full workflow: **1.** add a parameter, **2.** select
 another value, and **3.** use it in a task.
@@ -13,13 +13,13 @@ another value, and **3.** use it in a task.
 ## Usage
 
 1. **Add a parameter** from the status-bar param view (activity bar) or the
-   `Status Bar Parameter: Add Parameter` command. A short wizard asks for the
-   target file, the type, an id, and the values.
+   `Status Bar Parameter: Add Parameter` command. The wizard asks for the target
+   file, type, id, and values; advanced options are optional.
 2. **Select a value** by clicking the item in the status bar, or with
    `Status Bar Parameter: Change Selection`.
 3. **Use the value** in a configuration file via VS Code variable substitution:
-   - `${input:<name>}` — within the file the parameter is defined in.
-   - `${command:statusBarParam.get.<name>}` — from any other configuration file.
+   - `${input:<id>}` — from the same `tasks`/`launch` input scope that defines it.
+   - `${command:statusBarParam.get.<id>}` — from any other configuration file.
 
 Parameters can be stored in, and referenced across:
 
@@ -33,8 +33,75 @@ Selections persist across restarts, and the extension works in remote windows.
 
 - **Array** — choose from a fixed list of values.
 - **Command** — populate the value list dynamically from a shell command's
-  output (one value per line, or split on a custom `separator`). In an untrusted
-  workspace the command is not executed; array parameters still work.
+  output (one value per line, or split on a custom `separator`).
+
+## JSON examples
+
+The wizard writes VS Code `inputs` entries like these. For the extension to pick
+up a parameter, keep `type` as `"command"` and keep `command` in the form
+`statusBarParam.get.<id>`, matching the `id`. In the first example, only the
+`environment` parts are meant to change. Configure everything else under `args`;
+IntelliSense is available there.
+
+```jsonc
+"inputs": [
+    {
+        "id": "environment",
+        "type": "command",
+        "command": "statusBarParam.get.environment",
+        "args": ["dev", "staging", "prod"]
+    },
+    {
+        "id": "branch",
+        "type": "command",
+        "command": "statusBarParam.get.branch",
+        "args": {
+            "shellCmd": "git branch --format=%(refname:short)"
+        }
+    }
+]
+```
+
+## Value shapes
+
+An array parameter's values are defined in the wizard right after the type, or by
+editing `values` directly. Plain and display-labelled values can be mixed. Named
+values cannot be mixed with either, because a keyless reference has no single
+value to return for a named entry.
+
+- **Plain** — a bare string, shown in the bar and returned as-is.
+  Example: `"values": ["dev", "staging", "prod"]`.
+- **Display labels** — `{ "value": "raw", "displayValue": "Label" }` shows a
+  friendly label in the bar and picker while storing and returning the raw value.
+  Example: `{ "value": "prod-us-east-1", "displayValue": "Production (US East)" }`.
+- **Named (secondary) values** — make `value` a map of named outputs (with a
+  required `displayValue`), so one selection drives several outputs, each fetched
+  via `${command:statusBarParam.get.<id>.<key>}`. A keyless reference resolves to
+  an empty string (with a warning), so always reference a key. For example, a
+  compiler picker feeding both `CC` and `CXX`:
+
+  ```jsonc
+  {
+      "id": "compiler",
+      "type": "command",
+      "command": "statusBarParam.get.compiler",
+      "args": {
+          "values": [
+              { "displayValue": "gcc",   "value": { "cc": "gcc",   "cxx": "g++" } },
+              { "displayValue": "clang", "value": { "cc": "clang", "cxx": "clang++" } }
+          ]
+      }
+  }
+  ```
+
+  ```jsonc
+  "options": {
+      "env": {
+          "CC":  "${command:statusBarParam.get.compiler.cc}",
+          "CXX": "${command:statusBarParam.get.compiler.cxx}"
+      }
+  }
+  ```
 
 ## Tree view
 
@@ -49,52 +116,23 @@ Configure these on a parameter's `args` object — either via the optional step 
 the add wizard, or by editing the JSON directly (start typing inside `args` to
 trigger IntelliSense):
 
-- **`canPickMany`** — select multiple values at once.
-- **`initialSelection`** — the value(s) applied the first time the parameter
-  loads. Without it, a single-select parameter defaults to the first value and a
-  multi-select to none.
-- **`joinSeparator`** — the string used to join multiple selected values when the
-  parameter is substituted into a task (only relevant with `canPickMany`).
-  Defaults to a single space; backslash escapes (`\n`, `\t`, `\r`, `\\`) are
-  interpreted.
-- **Display labels** — write a value as
-  `{ "value": "raw", "displayValue": "Label" }` to show a friendly label in the
-  bar and picker while storing and returning the raw value.
-- **Named (secondary) values** — make a value's `value` an object (with a required
-  `displayValue` label) so one selection drives several named outputs, each fetched
-  via `${command:statusBarParam.get.<id>.<key>}`. Many tools already provide this
-  kind of indirection (e.g. CMake presets); reach for this when none fits. Example —
-  a compiler picker feeding both `CC` and `CXX`:
-
-  ```jsonc
-  "args": {
-      "values": [
-          { "displayValue": "gcc",   "value": { "cc": "gcc",   "cxx": "g++" } },
-          { "displayValue": "clang", "value": { "cc": "clang", "cxx": "clang++" } }
-      ]
-  }
-  ```
-
-  ```jsonc
-  "options": {
-      "env": {
-          "CC":  "${command:statusBarParam.get.compiler.cc}",
-          "CXX": "${command:statusBarParam.get.compiler.cxx}"
-      }
-  }
-  ```
-
-  A keyless reference (`${input:<id>}`) has no single value for a map and resolves
-  to an empty string with a warning — always reference a key. The add-parameter
-  wizard can build these too: pick **Named outputs** when it asks how to define the
-  values, name the output keys once (e.g. `cc`, `cxx`), then give each selection a
-  label and a value per key. A single parameter is wholly plain/labelled **or**
-  named — the two can't be mixed, since a keyless reference would have no meaning for
-  the named entries.
-- **`cwd` / `separator`** (command type) — the directory to run the command in,
-  and the string used to split its output into values.
-- **`showName` / `showSelection`** — override the global display settings for a
-  single parameter.
+- **`canPickMany`** — select multiple values at once; the picker shows checkboxes.
+  Example: `"canPickMany": true`.
+- **`joinSeparator`** — the output separator used to join selected values when the
+  parameter is substituted (only relevant with `canPickMany`; defaults to a single
+  space). Backslash escapes (`\n`, `\t`, `\r`, `\\`) are interpreted.
+  Example: `"joinSeparator": ", "`.
+- **`initialSelection`** — the value(s) applied when no selection is stored, such
+  as first load or after reset. Without it, a single-select parameter defaults to
+  the first value and a multi-select to none. Example:
+  `"initialSelection": "staging"` (or an array of values with `canPickMany`).
+- **`cwd` / `separator`** (command type) — the directory to run the command in, and
+  the input separator used to split command output into values (defaults to
+  newlines). `separator` parses command output; `joinSeparator` joins selected
+  values during substitution.
+  Example: `"cwd": "scripts", "separator": ","`.
+- **`showName` / `showSelection`** — override the global [display settings](#settings)
+  for a single parameter. Example: `"showName": true`.
 
 ## Settings
 
@@ -105,8 +143,8 @@ trigger IntelliSense):
 
 ## Notes
 
-- Parameter ids must be unique across all configuration files, as they share a
-  single command namespace.
+- Parameter ids must use only letters, digits, `_`, `.`, or `-`, and must be
+  unique across all configuration files because they share one command namespace.
 - To adjust or remove a parameter, edit or delete its entry in the `inputs`
   section of the configuration file (or use the tree view's actions).
 - **A substituted value is a single argument.** VS Code expands `${input:<name>}`
