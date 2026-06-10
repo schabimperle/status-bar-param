@@ -6,6 +6,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @types/vscode must not exceed engines.vscode (^1.68.0), or `vsce package`
+      # fails with "@types/vscode > engines.vscode". Keep it on the 1.68.x line;
+      # raise it by hand together with engines.vscode when bumping the VS Code floor.
+      - dependency-name: "@types/vscode"
+        update-types:
+          ["version-update:semver-minor", "version-update:semver-major"]
+      # jest-mock-vscode 4.x requires @types/vscode ^1.90, which would force the
+      # engine up. Stay on 3.x while we target VS Code 1.68.
+      - dependency-name: "jest-mock-vscode"
+        update-types: ["version-update:semver-major"]
     groups:
       # batch low-risk dev tooling bumps into one PR to reduce noise
       dev-dependencies:
