@@ -246,7 +246,7 @@ export class JsonFile implements Disposable {
         // stable friendly label for the user (global) tasks.json: its uri is a
         // placeholder remotely, and a noisy user-data path locally
         if (this.isUserTasks) {
-            return 'User';
+            return 'User (Global)';
         }
         return this.uri.fsPath;
     }

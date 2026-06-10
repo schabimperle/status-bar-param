@@ -87,11 +87,11 @@ describe('JsonFile path helpers', () => {
         expect(file.getDescription()).toBe(file.uri.fsPath);
     });
 
-    it('getDescription is "User" for the local user tasks.json, matching the remote label', () => {
+    it('getDescription is "User (Global)" for the local user tasks.json, matching the remote label', () => {
         // the local global tasks.json is a plain file with no workspace folder;
-        // it must show the same friendly "User" label as the remote vscode-userdata one
+        // it must show the same friendly "User (Global)" label as the remote vscode-userdata one
         const file = makeFile('/home/me/.config/Code/User/tasks.json');
-        expect(file.getDescription()).toBe('User');
+        expect(file.getDescription()).toBe('User (Global)');
     });
 
     it('getJsoncPaths targets the top level for tasks.json', () => {
