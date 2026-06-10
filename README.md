@@ -77,8 +77,10 @@ value to return for a named entry.
 - **Named (secondary) values** — make `value` a map of named outputs (with a
   required `displayValue`), so one selection drives several outputs, each fetched
   via `${command:statusBarParam.get.<id>.<key>}`. A keyless reference resolves to
-  an empty string (with a warning), so always reference a key. For example, a
-  compiler picker feeding both `CC` and `CXX`:
+  an empty string (with a warning), so always reference a key. The `displayValue`
+  must be unique among the values: it is what `initialSelection` references (a
+  named value has no single string to match on). For example, a compiler picker
+  feeding both `CC` and `CXX`:
 
   ```jsonc
   {
@@ -120,12 +122,15 @@ trigger IntelliSense):
   Example: `"canPickMany": true`.
 - **`joinSeparator`** — the output separator used to join selected values when the
   parameter is substituted (only relevant with `canPickMany`; defaults to a single
-  space). Backslash escapes (`\n`, `\t`, `\r`, `\\`) are interpreted.
-  Example: `"joinSeparator": ", "`.
+  space). Used verbatim: the wizard interprets a typed escape (`\n`, `\t`, `\r`,
+  `\\`) once and stores the real character, so when editing `args` directly write a
+  real newline (`"\n"`), not `"\\n"`. Example: `"joinSeparator": ", "`.
 - **`initialSelection`** — the value(s) applied when no selection is stored, such
   as first load or after reset. Without it, a single-select parameter defaults to
   the first value and a multi-select to none. Example:
-  `"initialSelection": "staging"` (or an array of values with `canPickMany`).
+  `"initialSelection": "staging"` (or an array of values with `canPickMany`). For
+  display-labelled values reference the underlying `value`; for named (map) values
+  reference the `displayValue` label (e.g. `"initialSelection": "gcc"`).
 - **`cwd` / `separator`** (command type) — the directory to run the command in, and
   the input separator used to split command output into values (defaults to
   newlines). `separator` parses command output; `joinSeparator` joins selected

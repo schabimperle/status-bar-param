@@ -8,14 +8,10 @@ node_modules/**
 coverage/**
 jest.config.js
 .gitignore
-.yarnrc
 eslint.config.mjs
 CONTRIBUTING.md
-plan.md
-vsc-extension-quickstart.md
 package-lock.json
 **/tsconfig.json
-**/.eslintrc.json
 **/*.map
 **/*.ts
 *.vsix
@@ -24,9 +20,3 @@ package-lock.json
 # dev-only config that shouldn't ship to the Marketplace
 .editorconfig
 demo-workspace/**
-
-# the README now uses the single guided full_demo.gif; the per-step GIFs are
-# kept in the repo but not shipped in the .vsix
-images/demo_add.gif
-images/demo_select.gif
-images/demo_retrieve.gif

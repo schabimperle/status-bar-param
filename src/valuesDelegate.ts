@@ -87,7 +87,11 @@ export class ArrayValuesDelegate implements ValuesDelegate {
 // add-param wizard can derive the same identity when offering a named value as an
 // initial selection.
 export function canonicalKey(map: { [key: string]: string }): string {
-    const sorted: { [key: string]: string } = {};
+    // Object.create(null), not {}: a key like `__proto__` assigned onto a plain object
+    // sets the prototype instead of an own property, so it would vanish from the
+    // stringified identity (two maps differing only in `__proto__` would collide). A
+    // null-prototype object stores every key as a normal own, enumerable property.
+    const sorted: { [key: string]: string } = Object.create(null);
     for (const key of Object.keys(map).sort()) {
         sorted[key] = map[key];
     }

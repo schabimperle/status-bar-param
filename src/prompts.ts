@@ -1,7 +1,8 @@
 import { QuickPickItem, window } from 'vscode';
 import { ArrayOptions, ArrayValue, CommandOptions, MapValueObject, Options, StringValueObject } from './schemas';
-import { ArrayValuesDelegate, canonicalKey, CommandValuesDelegate } from './valuesDelegate';
+import { ArrayValuesDelegate, CommandValuesDelegate } from './valuesDelegate';
 import { interpretEscapes } from './escapes';
+import { Strings } from './strings';
 import type { JsonFile } from './jsonFile';
 
 /**
@@ -18,6 +19,36 @@ import type { JsonFile } from './jsonFile';
  * comment is written next to the new parameter). Each prompt returns the gathered
  * data, or undefined when the user aborts (Escape).
  */
+
+// Characters allowed in a parameter id and in a named-output key: both are
+// embedded verbatim into a `${input:<id>}` / `${command:…get.<id>.<key>}`
+// reference, so a `}`, newline, tab, etc. would produce an entry the user can't
+// write. Kept in sync with array_options_schema.json's `propertyNames` pattern.
+const ID_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
+
+// names that would clash with JS object internals when a named-output key is used
+// to index a plain map (e.g. `secondaryValues['__proto__']`), so they're rejected
+// here and in the schema's `propertyNames` rather than relying on runtime guards alone.
+// Only relevant for output keys (which index a map), not for ids (which don't).
+const RESERVED_NAMES = new Set(['__proto__', 'prototype', 'constructor']);
+
+// Validate the shared character set of a parameter id / named-output key. Returns an
+// error message for an invalid value, or undefined when it's acceptable (an empty
+// value is "no input yet" — callers decide what empty means). Kept in sync with
+// array_options_schema.json's `propertyNames`.
+function validateNameChars(value: string): string | undefined {
+    if (value && !ID_KEY_PATTERN.test(value)) {
+        return 'Only letters, digits, and _ . - are allowed.';
+    }
+    return undefined;
+}
+
+// Validate a named-output key: the character set plus the reserved map-key names. An
+// id needs only validateNameChars (it isn't used to index a plain object), so the
+// reserved-name rule would reject harmless ids like `constructor` for no reason.
+function validateOutputKey(value: string): string | undefined {
+    return validateNameChars(value) ?? (value && RESERVED_NAMES.has(value) ? `'${value}' is reserved and cannot be used.` : undefined);
+}
 
 export type ParamType = 'array' | 'command';
 
@@ -82,23 +113,26 @@ export async function promptParamType(): Promise<ParamType | undefined> {
 
 /**
  * Enter the parameter name/id (no spaces, unique). Empty/Escape returns undefined.
- * `existingIds` are rejected because ids share a single global command namespace.
+ * `existingIds` are rejected because ids share a single global command namespace;
+ * `existingCommandIds` additionally rejects a (dotted) id whose retrieval command
+ * would collide with another parameter's named-output command (e.g. id `foo.cc` vs
+ * id `foo` + key `cc`), which would otherwise only fail at registration time.
  */
-export async function promptParamId(existingIds: string[]): Promise<string | undefined> {
+export async function promptParamId(existingIds: string[], existingCommandIds: Set<string> = new Set()): Promise<string | undefined> {
     const taken = new Set(existingIds);
-    // the id is embedded verbatim into `${input:<id>}` / `${command:…get.<id>}`,
-    // so restrict it to characters that can't break that syntax (a `}`, newline,
-    // tab, etc. would produce unusable task/launch entries)
-    const allowed = /^[A-Za-z0-9_.-]+$/;
     const id = await window.showInputBox({
         prompt: 'Enter the name of the parameter.',
         ignoreFocusOut: true,
         validateInput: (value: string) => {
-            if (value && !allowed.test(value)) {
-                return 'Only letters, digits, and _ . - are allowed.';
+            const base = validateNameChars(value);
+            if (base) {
+                return base;
             }
             if (taken.has(value)) {
                 return `A parameter named '${value}' already exists.`;
+            }
+            if (value && existingCommandIds.has(Strings.getCommandId(value))) {
+                return `'${value}' clashes with a named output of another parameter.`;
             }
             return undefined;
         },
@@ -112,10 +146,17 @@ export async function promptParamId(existingIds: string[]): Promise<string | und
  * Returns undefined if the user aborts. The args are kept minimal — a bare value
  * array when no options are set — so simple parameters produce simple JSON.
  */
-export async function promptParamArgs(type: ParamType, ctx: WizardContext, shape?: ValueShape): Promise<ParamArgs | undefined> {
+export async function promptParamArgs(
+    type: ParamType,
+    ctx: WizardContext,
+    shape?: ValueShape,
+    id?: string,
+    existingCommandIds: Set<string> = new Set(),
+): Promise<ParamArgs | undefined> {
     // the value shape is gathered by the caller (right after the type pick, before the
-    // id); only array params have one — command output is always plain strings
-    return type === 'array' ? promptArrayArgs(ctx, shape ?? 'plain') : promptCommandArgs(ctx);
+    // id); only array params have one — command output is always plain strings. id and
+    // existingCommandIds flow on so the named shape can preflight its output-key commands.
+    return type === 'array' ? promptArrayArgs(ctx, shape ?? 'plain', id, existingCommandIds) : promptCommandArgs(ctx);
 }
 
 /** Collect plain string values until an empty entry. Escape aborts. */
@@ -144,16 +185,20 @@ async function promptArrayValues(): Promise<string[] | undefined> {
  * plain values, value+label pairs, or named outputs — never discovering after the
  * fact that what they typed meant something else.
  */
-async function promptArrayArgs(ctx: WizardContext, shape: ValueShape): Promise<ParamArgs | undefined> {
-    const values = shape === 'named' ? await promptNamedValues() : await promptShapedValues(shape);
+async function promptArrayArgs(
+    ctx: WizardContext,
+    shape: ValueShape,
+    id?: string,
+    existingCommandIds: Set<string> = new Set(),
+): Promise<ParamArgs | undefined> {
+    const values = shape === 'named' ? await promptNamedValues(id, existingCommandIds) : await promptShapedValues(shape);
     if (values === undefined) {
         return undefined;
     }
-    // the sample task echoes the keyless `${input:<id>}`, which has no value for a
-    // named (map) selection — so don't offer it for the named shape (it would
-    // scaffold a demo task that resolves to an empty string with a warning)
-    const advancedCtx = shape === 'named' ? { ...ctx, offerSampleTask: false } : ctx;
-    const advanced = await promptAdvancedOptions('array', advancedCtx);
+    // the sample task is offered for the named shape too: buildSampleTask references
+    // each `…get.<id>.<key>` for a named value (rather than the keyless `${input:<id>}`,
+    // which would resolve to an empty string for a map)
+    const advanced = await promptAdvancedOptions('array', ctx);
     if (advanced === undefined) {
         return undefined;
     }
@@ -250,7 +295,7 @@ async function promptCommandArgs(ctx: WizardContext): Promise<ParamArgs | undefi
 }
 
 /** The advanced option keys, each phrased in the menu as the action it performs. */
-type AdvancedKey = 'canPickMany' | 'initialSelection' | 'showName' | 'showSelection' | 'joinSeparator' | 'cwd' | 'separator' | 'sampleTask';
+type AdvancedKey = 'canPickMany' | 'initialSelection' | 'showName' | 'showSelection' | 'cwd' | 'separator' | 'sampleTask';
 
 /**
  * One optional multi-select of advanced options applicable to the type. Returns the
@@ -274,12 +319,10 @@ async function promptAdvancedOptions(type: ParamType, ctx: WizardContext): Promi
             label: ctx.showSelectionsDefault ? 'Hide the selected value in the status bar' : 'Show the selected value in the status bar',
             description: 'Whether the selected value is shown in the status bar.',
         },
-        {
-            key: 'joinSeparator',
-            label: 'Set a custom value separator',
-            description: 'The string used to join multiple selected values when substituted into a task (defaults to a space).',
-        },
     );
+    // a join separator is *not* offered here: it only affects how several selected
+    // values are combined, so it would be meaningless on a single-select param.
+    // collectOptions prompts for it as a follow-up to enabling "select multiple values".
     if (type === 'command') {
         items.push(
             { key: 'cwd', label: 'Set the working directory', description: 'The directory to run the command from.' },
@@ -311,6 +354,24 @@ async function collectOptions(
     const opts: Options = {};
     if (advanced.includes('canPickMany')) {
         opts.canPickMany = true;
+        // the join separator only applies when several values can be selected, so it's
+        // asked here as a follow-up to enabling multi-select rather than as a standalone
+        // advanced toggle (which could be picked for a single-select param, where it has
+        // no effect). Empty keeps the default (a space).
+        const joinSeparator = await promptOptionalInput(
+            'Enter the separator used to join the selected values (use \\n for newline, \\t for tab). Press Enter to keep the default (a space).',
+        );
+        if (joinSeparator === undefined) {
+            return undefined; // aborted
+        }
+        // interpret escapes at wizard time and store the real character, so the written
+        // JSON matches what the user typed (a typed `\t` becomes a tab, not the literal
+        // `\\t`) — the same handling as the command `separator` above. onGet still
+        // interprets escapes too, which covers a hand-edited `"\\t"` and is a no-op on
+        // an already-real character.
+        if (joinSeparator !== '') {
+            opts.joinSeparator = interpretEscapes(joinSeparator);
+        }
     }
     if (advanced.includes('showName')) {
         opts.showName = !ctx.showNamesDefault;
@@ -326,19 +387,6 @@ async function collectOptions(
         // an empty pick/entry means "no initial selection" — only set when present
         if (initial !== '' && !(Array.isArray(initial) && initial.length === 0)) {
             opts.initialSelection = initial;
-        }
-    }
-    if (advanced.includes('joinSeparator')) {
-        const joinSeparator = await promptOptionalInput(
-            'Enter the separator used to join multiple selected values (use \\n for newline, \\t for tab). Defaults to a space.',
-        );
-        if (joinSeparator === undefined) {
-            return undefined; // aborted
-        }
-        // store the literal the user typed (escapes are interpreted in onGet, so a
-        // hand-edited "\n" behaves the same); empty keeps the default space.
-        if (joinSeparator !== '') {
-            opts.joinSeparator = joinSeparator;
         }
     }
     return opts;
@@ -366,17 +414,21 @@ async function promptDisplayLabels(rawValues: string[]): Promise<(string | Strin
  * {@link MapValueObject} entries. Returns undefined on Escape; an empty result (no
  * keys, or no rows) means the user backed out without defining anything.
  */
-async function promptNamedValues(): Promise<MapValueObject[] | undefined> {
-    const keys = await promptOutputKeys();
+async function promptNamedValues(id?: string, existingCommandIds: Set<string> = new Set()): Promise<MapValueObject[] | undefined> {
+    const keys = await promptOutputKeys(id, existingCommandIds);
     if (keys === undefined) {
         return undefined;
     }
     const values: MapValueObject[] = [];
+    // a named value has no scalar value, so its label doubles as the handle used to
+    // preselect it (`initialSelection`); reject duplicates so that handle is unambiguous
+    const usedLabels = new Set<string>();
     let i = 1;
     while (true) {
         const displayValue = await window.showInputBox({
             prompt: `Enter a label for the ${i++}. value (shown in the status bar), leave empty when finished.`,
             ignoreFocusOut: true,
+            validateInput: (value: string) => (value && usedLabels.has(value) ? `A value labelled '${value}' already exists.` : undefined),
         });
         if (displayValue === undefined) {
             return undefined; // aborted
@@ -384,6 +436,7 @@ async function promptNamedValues(): Promise<MapValueObject[] | undefined> {
         if (displayValue === '') {
             break;
         }
+        usedLabels.add(displayValue);
         const map: { [key: string]: string } = {};
         for (const key of keys) {
             const output = await window.showInputBox({
@@ -411,12 +464,26 @@ async function promptNamedValues(): Promise<MapValueObject[] | undefined> {
  * key is required — with none there are no outputs to set — so an immediate empty
  * entry aborts the named flow. Duplicates are ignored so the keys stay unique.
  */
-async function promptOutputKeys(): Promise<string[] | undefined> {
+async function promptOutputKeys(id?: string, existingCommandIds: Set<string> = new Set()): Promise<string[] | undefined> {
     const keys: string[] = [];
     while (true) {
         const key = await window.showInputBox({
             prompt: `Enter the name of output ${keys.length + 1} (e.g. CC), leave empty when finished.`,
             ignoreFocusOut: true,
+            // a key becomes part of a `${command:…get.<id>.<key>}` reference and is
+            // used to index the value map, so it shares the id's rules (an empty value
+            // finishes). Also preflight its command id against the existing namespace,
+            // so an output whose `…get.<id>.<key>` collides with another parameter's
+            // command (e.g. an existing id `foo.cc`) is caught here, not at registration.
+            validateInput: (value: string) => {
+                const base = validateOutputKey(value);
+                if (base || !value || id === undefined) {
+                    return base;
+                }
+                return existingCommandIds.has(`${Strings.getCommandId(id)}.${value}`)
+                    ? `Output '${value}' clashes with the command of another parameter.`
+                    : undefined;
+            },
         });
         if (key === undefined) {
             return undefined; // aborted
@@ -441,11 +508,13 @@ async function promptInitialSelectionFromValues(values: ArrayValue[], canPickMan
         if (typeof value === 'string') {
             return { label: value, value };
         }
-        // a named (map) value is stored under its canonical-key identity, not its
-        // label, so the initial selection must match that same string
+        // a named (map) value has no scalar value, so it's preselected by its display
+        // label (unique among the values) rather than its opaque canonical-JSON
+        // identity — keeping the written initialSelection readable. Param.update()
+        // matches a named value by label as well as by identity.
         if (typeof value.value === 'object') {
             const map = value as MapValueObject;
-            return { label: map.displayValue, value: canonicalKey(map.value) };
+            return { label: map.displayValue, value: map.displayValue };
         }
         const str = value as StringValueObject;
         return { label: str.displayValue ?? str.value, value: str.value };

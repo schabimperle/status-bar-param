@@ -132,6 +132,14 @@ describe('Param.update value mapping', () => {
         expect(store.get(COMMAND)).toEqual(['a']);
     });
 
+    it('seeds a named value from its display-label initialSelection, then persists the canonical identity', async () => {
+        const GCC: DisplayableValue = { value: '{"cc":"gcc"}', displayValue: 'gcc', secondaryValues: { cc: 'gcc' } };
+        const { store } = setup({ values: [GCC], secondaryKeys: ['cc'], opts: { initialSelection: 'gcc' } });
+        await flush();
+        // initialSelection references the readable label, but the stored selection is the identity
+        expect(store.get(COMMAND)).toEqual(['{"cc":"gcc"}']);
+    });
+
     it('preserves the stored selection and does not clobber it when values are unavailable', async () => {
         const { store, item } = setup({ unavailable: true, stored: { [COMMAND]: ['b'] } });
         await flush();
@@ -196,11 +204,18 @@ describe('Param.storeSelectedValues / onGet', () => {
         expect(param.onGet()).toBe('a,b');
     });
 
-    it('onGet interprets backslash escapes in joinSeparator (\\n -> newline)', async () => {
-        const { param } = setup({ opts: { canPickMany: true, joinSeparator: '\\n' } });
+    it('uses a real-newline joinSeparator verbatim (the wizard interprets escapes when writing)', async () => {
+        const { param } = setup({ opts: { canPickMany: true, joinSeparator: '\n' } });
         await flush();
         param.storeSelectedValues([A, B]);
         expect(param.onGet()).toBe('a\nb');
+    });
+
+    it('does not re-interpret a literal backslash-n joinSeparator (no double interpretation)', async () => {
+        const { param } = setup({ opts: { canPickMany: true, joinSeparator: '\\n' } });
+        await flush();
+        param.storeSelectedValues([A, B]);
+        expect(param.onGet()).toBe('a\\nb'); // the two characters backslash-n, not a newline
     });
 
     it('onGet falls back to a single space when joinSeparator is unset', async () => {
@@ -257,6 +272,23 @@ describe('Param secondary (named) values', () => {
         await expect(param.onGetSecondary('cxx')).resolves.toBe('g++ clang++');
     });
 
+    it('onGetSecondary ignores an inherited name not defined as an own output key', async () => {
+        // `toString` is on Object.prototype, so a naive `key in secondaryValues` would
+        // treat it as present and emit the prototype function; it must be dropped
+        const { param } = setup({ values: [GCC], secondaryKeys: KEYS, stored: { [COMMAND]: [GCC.value] } });
+        await flush();
+        await expect(param.onGetSecondary('toString')).resolves.toBe('');
+    });
+
+    it('onGetSecondary keeps an explicitly-empty output in its separator position', async () => {
+        // BARE defines cc as an empty string (distinct from lacking the key): it must
+        // hold its slot in the joined output rather than collapsing the separator
+        const BARE: DisplayableValue = { value: '{"cc":"","cxx":"c++"}', displayValue: 'bare', secondaryValues: { cc: '', cxx: 'c++' } };
+        const { param } = setup({ values: [GCC, BARE], secondaryKeys: KEYS, opts: { canPickMany: true }, stored: { [COMMAND]: [GCC.value, BARE.value] } });
+        await flush();
+        await expect(param.onGetSecondary('cc')).resolves.toBe('gcc ');
+    });
+
     it('onGet on a keyless map warns once and contributes nothing, still joining string entries', async () => {
         const { param } = setup({ values: [GCC, A], secondaryKeys: KEYS, opts: { canPickMany: true }, stored: { [COMMAND]: [GCC.value, 'a'] } });
         await flush();
@@ -278,7 +310,8 @@ describe('Param secondary (named) values', () => {
         expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
     });
 
-    it('stays functional when a secondary command id is already taken', async () => {
+    it('stays functional but surfaces an error when a secondary command id is already taken', async () => {
+        (vscode.window.showErrorMessage as jest.Mock).mockClear();
         (vscode.commands.registerCommand as jest.Mock).mockImplementation((id: string) => {
             if (id === `${COMMAND}.cxx`) {
                 throw new Error('already exists');
@@ -287,8 +320,11 @@ describe('Param secondary (named) values', () => {
         });
         const { param } = setup({ values: [GCC], secondaryKeys: KEYS, stored: { [COMMAND]: [GCC.value] } });
         await flush();
+        // the param itself is kept and its other outputs still resolve
         expect(param.registrationFailed).toBe(false);
         await expect(param.onGetSecondary('cc')).resolves.toBe('gcc');
+        // but the lost key is reported rather than silently dropped
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining(`${COMMAND}.cxx`));
     });
 });
 

@@ -2,7 +2,7 @@
   "name": "status-bar-param",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "publisher": "mschababerle",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -193,6 +193,7 @@
   "main": "./dist/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run bundle",
+    "prepare": "git config core.hooksPath .githooks || true",
     "compile": "npx tsc -p ./ && npm run copy-schemas -- out",
     "copy-schemas": "node ./scripts/copy-schemas.js",
     "bundle": "npm run compile && npx esbuild ./src/extension.ts --bundle --platform=node --format=cjs --main-fields=module,main --external:vscode --outfile=dist/extension.js --sourcemap --sources-content=false && npm run copy-schemas -- dist",

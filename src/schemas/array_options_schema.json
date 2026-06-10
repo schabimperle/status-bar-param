@@ -36,8 +36,14 @@
                     "additionalProperties": {
                         "type": "string"
                     },
+                    "propertyNames": {
+                        "pattern": "^[A-Za-z0-9_.-]+$",
+                        "not": {
+                            "enum": ["__proto__", "prototype", "constructor"]
+                        }
+                    },
                     "minProperties": 1,
-                    "description": "A map of named outputs, each retrievable via ${command:statusBarParam.get.<id>.<key>}. Lets one selection drive several outputs (e.g. a compiler pick yielding both cc and cxx)."
+                    "description": "A map of named outputs, each retrievable via ${command:statusBarParam.get.<id>.<key>}. Lets one selection drive several outputs (e.g. a compiler pick yielding both cc and cxx). Each key must use only letters, digits, and _ . - so it can be written in a ${command:…} reference."
                 }
             },
             "required": [

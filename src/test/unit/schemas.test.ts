@@ -55,7 +55,14 @@ describe('schema validation', () => {
             // a keyless ${command:…get.<id>} has no meaning for a named entry, so a
             // mixed array leaves no substitution that works for every selection
             expect(validateArrayOptionsInput({ values: ['a', { displayValue: 'gcc', value: { cc: 'gcc' } }] })).toBe(false);
-            expect(validateArrayOptionsInput({ values: [{ value: 'v', displayValue: 'Label' }, { displayValue: 'gcc', value: { cc: 'gcc' } }] })).toBe(false);
+            expect(
+                validateArrayOptionsInput({
+                    values: [
+                        { value: 'v', displayValue: 'Label' },
+                        { displayValue: 'gcc', value: { cc: 'gcc' } },
+                    ],
+                }),
+            ).toBe(false);
         });
         it('rejects the mix in the bare-array form too', () => {
             expect(validateArrayOptionsInput(['a', { displayValue: 'gcc', value: { cc: 'gcc' } }] as never)).toBe(false);

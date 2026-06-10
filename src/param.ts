@@ -6,7 +6,6 @@ import { JsonFile } from './jsonFile';
 import { ValuesDelegate } from './valuesDelegate';
 import { DisplayableValue, Options } from './schemas';
 import { ExtensionConfig } from './config';
-import { interpretEscapes } from './escapes';
 
 /**
  * A single status-bar parameter: owns its `StatusBarItem`, registers the
@@ -82,6 +81,16 @@ export class Param {
                 this.disposables.push(commands.registerCommand(`${this.command}.${key}`, () => this.onGetSecondary(key)));
             } catch (err) {
                 console.error(err);
+                // a named-output command id (`…get.<id>.<key>`) can collide with the
+                // primary command of a param whose id literally contains that dotted
+                // suffix (id `foo.cc` vs id `foo` + key `cc`). Unlike a primary clash
+                // we keep the param — its other outputs work — but surface the lost key
+                // so a `${command:…get.<id>.<key>}` reference that silently never
+                // resolves doesn't look like a typo.
+                const detail = err instanceof Error ? err.message : String(err);
+                window.showErrorMessage(
+                    `Could not register named output '${key}' for parameter '${this.id}': the command id '${this.command}.${key}' is already in use (does another parameter's id collide with it?). References to \${command:${this.command}.${key}} will not resolve. (${detail})`,
+                );
             }
         });
         // resolve values only after the retrieval command is registered
@@ -113,6 +122,7 @@ export class Param {
             return;
         }
         // fall back to initialSelection when nothing was selected before
+        const seedingFromInitial = !storedSelections;
         if (!storedSelections) {
             const initial = this.opts.initialSelection;
             const asArray = initial === undefined ? [] : Array.isArray(initial) ? initial : [initial];
@@ -124,7 +134,16 @@ export class Param {
         // dropping any that are no longer present.
         let availableSelections: DisplayableValue[] = [];
         storedSelections.forEach((storedSelection) => {
-            const match = values.find((value) => value.value === storedSelection);
+            const match = values.find(
+                (value) =>
+                    value.value === storedSelection ||
+                    // a named (map) value has no scalar value, so its initialSelection is
+                    // given as the display label (what the picker/status bar show); match
+                    // that too — but only when seeding from initialSelection, never when
+                    // reconciling a persisted selection (which always stores the canonical
+                    // identity), so a label can't shadow another value's stored identity.
+                    (seedingFromInitial && value.secondaryValues !== undefined && value.displayValue === storedSelection),
+            );
             if (match) {
                 availableSelections.push(match);
             }
@@ -197,13 +216,15 @@ export class Param {
 
     /**
      * Resolve the `${command:…get.<id>}` substitution: the selected value(s) joined
-     * with `joinSeparator` (a space by default; escapes interpreted via interpretEscapes).
+     * with `joinSeparator` (a space by default). The separator is used verbatim — like
+     * the command `separator`, any backslash escapes are interpreted once when written
+     * (by the wizard) or via JSON's own escaping, never re-interpreted here.
      * A map (named-output) entry has no single keyless value, so it warns and is
      * skipped — the user must reference one of its keys via `…get.<id>.<key>`.
      */
     onGet(): string | Promise<string> {
         const selection = this.loadSelectedValues() ?? [];
-        const separator = this.opts.joinSeparator === undefined ? ' ' : interpretEscapes(this.opts.joinSeparator);
+        const separator = this.opts.joinSeparator ?? ' ';
         // fast path: without named-output keys, no entry can be a map, so the stored
         // strings are the values verbatim (the common case, kept synchronous)
         if (this.valuesDelegate.getSecondaryKeys().length === 0) {
@@ -232,21 +253,30 @@ export class Param {
 
     /**
      * Resolve the `${command:…get.<id>.<key>}` substitution: the selected value(s)'
-     * named output for `key`, joined like onGet. A selection without that key
-     * contributes nothing, so an unset key yields an empty string.
+     * named output for `key`, joined like onGet. A selection that doesn't define
+     * `key` contributes nothing; one that defines it as an empty string keeps its
+     * separator position (an explicit empty output is distinct from an absent one).
      */
     async onGetSecondary(key: string): Promise<string> {
         const selection = this.loadSelectedValues() ?? [];
         if (selection.length === 0) {
             return '';
         }
-        const separator = this.opts.joinSeparator === undefined ? ' ' : interpretEscapes(this.opts.joinSeparator);
+        const separator = this.opts.joinSeparator ?? ' ';
         // unforced: array values are static, so this never re-runs a shell command
         const values = (await this.getValues()) ?? [];
-        return selection
-            .map((selected) => values.find((value) => value.value === selected)?.secondaryValues?.[key] ?? '')
-            .filter((secondary) => secondary !== '')
-            .join(separator);
+        const parts: string[] = [];
+        for (const selected of selection) {
+            const secondary = values.find((value) => value.value === selected)?.secondaryValues;
+            // hasOwnProperty (not `key in secondary`) so a set-but-empty value is kept
+            // while a missing key is dropped — without matching inherited names like
+            // `toString`/`constructor`, which `in` would treat as present and push
+            // their prototype function instead of dropping them
+            if (secondary && Object.prototype.hasOwnProperty.call(secondary, key)) {
+                parts.push(secondary[key]);
+            }
+        }
+        return parts.join(separator);
     }
 
     // warn once that a named-value (map) selection was read without a key

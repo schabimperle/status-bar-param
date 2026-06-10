@@ -53,9 +53,21 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
             return;
         }
     }
-    // ids share a single global command namespace, so reject existing ones up front
-    const existingIds = jsonFiles.flatMap((file) => file.params).map((param) => param.id);
-    const id = await prompts.promptParamId(existingIds);
+    // ids share a single global command namespace, so reject existing ones up front.
+    // Collect every already-registered command id (each param's primary plus its
+    // per-key secondary commands) so the wizard can reject a new id or output key that
+    // would collide — e.g. a new id `foo.cc` vs an existing `foo` + key `cc` — instead
+    // of writing a config entry whose command only fails to register afterwards.
+    const existingParams = jsonFiles.flatMap((file) => file.params);
+    const existingIds = existingParams.map((param) => param.id);
+    const existingCommandIds = new Set<string>();
+    for (const param of existingParams) {
+        existingCommandIds.add(param.command);
+        for (const key of param.valuesDelegate.getSecondaryKeys()) {
+            existingCommandIds.add(`${param.command}.${key}`);
+        }
+    }
+    const id = await prompts.promptParamId(existingIds, existingCommandIds);
     if (!id) {
         return;
     }
@@ -69,6 +81,8 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
             offerSampleTask: !jsonFile.isLaunchJson,
         },
         shape,
+        id,
+        existingCommandIds,
     );
     if (!result) {
         return;
@@ -125,25 +139,35 @@ export async function onEdit(param: Param) {
 /** Copy a parameter's `${input:…}` or `${command:…}` reference to the clipboard. */
 export async function onCopyCmd(param: Param) {
     log.debug('onCopyCmd');
-    const items: (QuickPickItem & { target: 'input' | 'command' })[] = [
-        {
-            target: 'input',
-            label: 'Copy Input Reference',
-            description: 'To use only in the vscode configuration file where the parameter is defined.',
-        },
-        {
-            target: 'command',
-            label: 'Copy Command Reference',
-            description: 'To use across vscode configuration files.',
-        },
-    ];
-    const copyType = await window.showQuickPick(items, {
+    const command = Strings.getCommandId(param.id);
+    const secondaryKeys = param.valuesDelegate.getSecondaryKeys();
+    // a named (map) value has no keyless value — `${input:id}` / `${command:…get.id}`
+    // resolve to an empty string with a warning — so for a named param offer only the
+    // per-key command references, which are the ones that actually resolve.
+    const items: (QuickPickItem & { reference: string })[] =
+        secondaryKeys.length > 0
+            ? secondaryKeys.map((key) => ({
+                  label: `Copy Command Reference (${key})`,
+                  description: `The '${key}' output, to use across vscode configuration files.`,
+                  reference: `\${command:${command}.${key}}`,
+              }))
+            : [
+                  {
+                      label: 'Copy Input Reference',
+                      description: 'To use only in the vscode configuration file where the parameter is defined.',
+                      reference: `\${input:${param.id}}`,
+                  },
+                  {
+                      label: 'Copy Command Reference',
+                      description: 'To use across vscode configuration files.',
+                      reference: `\${command:${command}}`,
+                  },
+              ];
+    const picked = await window.showQuickPick(items, {
         placeHolder: 'Select the reference you want to copy.',
     });
-    if (copyType?.target === 'input') {
-        await env.clipboard.writeText(`\${input:${param.id}}`);
-    } else if (copyType?.target === 'command') {
-        await env.clipboard.writeText(`\${command:${Strings.EXTENSION_ID}.get.${param.id}}`);
+    if (picked) {
+        await env.clipboard.writeText(picked.reference);
     }
 }
 

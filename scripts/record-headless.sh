@@ -71,10 +71,18 @@ code-server --bind-addr "0.0.0.0:$PORT" --auth none \
     >/tmp/codeserver.log 2>&1 &
 CS_PID=$!
 
+ready=
 for i in $(seq 1 30); do
-    [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz")" = "200" ] && break
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/healthz")" = "200" ]; then
+        ready=1
+        break
+    fi
     sleep 1
 done
+if [ -z "$ready" ]; then
+    echo "   !! code-server did not become healthy on :$PORT within 30s; see /tmp/codeserver.log" >&2
+    exit 1
+fi
 echo "   code-server ready (pid $CS_PID)"
 
 echo ">> recording flows: $FLOWS"

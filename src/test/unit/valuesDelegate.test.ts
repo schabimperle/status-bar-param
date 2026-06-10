@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { exec } from 'child_process';
 import * as vscode from 'vscode';
-import { ArrayValuesDelegate, CommandValuesCache, CommandValuesDelegate } from '../../valuesDelegate';
+import { ArrayValuesDelegate, canonicalKey, CommandValuesCache, CommandValuesDelegate } from '../../valuesDelegate';
 import { CommandOptions } from '../../schemas';
 
 jest.mock('child_process', () => ({ exec: jest.fn() }));
@@ -60,6 +60,15 @@ describe('ArrayValuesDelegate', () => {
             // keys sorted in the identity so re-ordering the map keeps the same stored selection
             { value: '{"cc":"gcc","cxx":"g++"}', displayValue: 'gcc', secondaryValues: { cxx: 'g++', cc: 'gcc' } },
         ]);
+    });
+
+    it('keeps a `__proto__` key in the canonical identity (built on a null-prototype object)', () => {
+        // JSON.parse, not a literal: `{ __proto__: ... }` would set the prototype rather
+        // than create an own property. A plain {} in canonicalKey would then drop it,
+        // making two differing maps collide; the null-prototype build must retain it.
+        const map = JSON.parse('{"__proto__":"x","cc":"y"}');
+        expect(canonicalKey(map)).toBe('{"__proto__":"x","cc":"y"}');
+        expect(canonicalKey(map)).not.toBe(canonicalKey({ cc: 'y' }));
     });
 
     it('exposes no secondary keys for plain or string-value entries', () => {

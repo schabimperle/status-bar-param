@@ -8,4 +8,7 @@ export const Strings = {
     COMMAND_EDIT: `${EXTENSION_ID}.edit`,
     COMMAND_COPY_CMD: `${EXTENSION_ID}.copyCmd`,
     COMMAND_DELETE: `${EXTENSION_ID}.delete`,
+    // the retrieval command a parameter registers (`${input:<id>}` resolves to it);
+    // named outputs append `.<key>`. Centralized so the id namespace has one source.
+    getCommandId: (id: string) => `${EXTENSION_ID}.get.${id}`,
 } as const;

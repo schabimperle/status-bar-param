@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# Local pre-commit gate: keep the static CI checks (Prettier + ESLint) green so a
+# commit can't push the `format`/`lint` jobs red. Wired up by the repo's `prepare`
+# script (`git config core.hooksPath .githooks`), so a fresh `npm install` activates
+# it. Bypass with `git commit --no-verify` when you really need to.
+set -euo pipefail
+
+echo "pre-commit: checking formatting (prettier) and lint (eslint)…"
+npm run format:check
+npm run lint
+echo "pre-commit: ok"

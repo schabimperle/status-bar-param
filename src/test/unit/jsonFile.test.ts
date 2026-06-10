@@ -167,6 +167,17 @@ describe('JsonFile.addParam', () => {
         expect(writtenRaw()).toMatch(/\/\/ Sample task demonstrating the use of the 'greeting' parameter\.\n\s*\{/);
     });
 
+    it('builds a named-value sample task that references each per-key command, not the keyless input', async () => {
+        const file = makeFile('/ws/.vscode/tasks.json');
+        await file.addParam('compiler', [{ displayValue: 'gcc', value: { cc: 'gcc', cxx: 'g++' } }], true);
+
+        const tasks = written().tasks as Array<{ command: string }>;
+        // a named value has no keyless value, so the demo references the per-key commands
+        expect(tasks[0].command).toContain('${command:statusBarParam.get.compiler.cc}');
+        expect(tasks[0].command).toContain('${command:statusBarParam.get.compiler.cxx}');
+        expect(tasks[0].command).not.toContain('${input:compiler}');
+    });
+
     it("keeps the file's existing indentation (no tabs, consistent levels)", async () => {
         // a 2-space file must stay 2-space; the jsonc default ({}) would otherwise
         // emit tabs and re-flow the touched property to column 0 (mixed indent).

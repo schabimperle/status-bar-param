@@ -14,6 +14,7 @@
 // Usage: node scripts/record-demo.mjs
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import {
     sleep, pause, waitForWorkbench, runCommand, waitForPrompt, typeQuick, acceptQuick,
@@ -23,7 +24,9 @@ import { installOverlays } from './lib/mouse-helper.mjs';
 
 const CDP_URL = process.env.CDP_URL || 'http://192.168.48.10:9222';
 const BASE_URL = process.env.BASE_URL || 'http://192.168.48.1:8741';
-const FOLDER = process.env.FOLDER || '/home/dev/status-bar-param/demo-workspace';
+// default to the repo's own demo-workspace (scripts/ -> ../demo-workspace), so the
+// direct `node scripts/record-demo.mjs` usage isn't pinned to one machine's checkout
+const FOLDER = process.env.FOLDER || path.resolve(fileURLToPath(import.meta.url), '..', '..', 'demo-workspace');
 const OUT_DIR = process.env.OUT_DIR || '/tmp/sbp-demo';
 const FLOWS = (process.env.FLOWS || 'full').split(',').map((s) => s.trim()).filter(Boolean);
 const VIEW = { width: 1280, height: 720 };

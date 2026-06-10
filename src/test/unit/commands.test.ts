@@ -56,8 +56,26 @@ describe('onAddParam', () => {
     it('writes the gathered parameter and passes the wizard context and value shape', async () => {
         await commands.onAddParam(config, [], jsonFile);
         // the global defaults + sample-task offer + chosen value shape are threaded into the prompt
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true }, 'plain');
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith(
+            'array',
+            { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true },
+            'plain',
+            'myId',
+            expect.any(Set),
+        );
         expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['a', 'b'], false);
+    });
+
+    it('preflights the new id against existing primary and secondary command ids', async () => {
+        const existing = [
+            { id: 'compiler', command: 'statusBarParam.get.compiler', valuesDelegate: { getSecondaryKeys: () => ['cc', 'cxx'] } },
+        ] as unknown as Param[];
+        const fileWithParams = { params: existing } as unknown as JsonFile;
+        await commands.onAddParam(config, [fileWithParams], jsonFile);
+        expect(prompts.promptParamId).toHaveBeenCalledWith(
+            ['compiler'],
+            new Set(['statusBarParam.get.compiler', 'statusBarParam.get.compiler.cc', 'statusBarParam.get.compiler.cxx']),
+        );
     });
 
     it('gathers the value shape after the type and before the id (array only)', async () => {
@@ -74,7 +92,7 @@ describe('onAddParam', () => {
         await commands.onAddParam(config, [], jsonFile);
         expect(prompts.promptValueShape).not.toHaveBeenCalled();
         // a command param threads no shape (undefined) into the args step
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('command', expect.any(Object), undefined);
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('command', expect.any(Object), undefined, 'myId', expect.any(Set));
     });
 
     it('forwards the sample-task choice from the advanced step', async () => {
@@ -86,7 +104,7 @@ describe('onAddParam', () => {
     it('does not offer a sample task for launch.json', async () => {
         (jsonFile as unknown as { isLaunchJson: boolean }).isLaunchJson = true;
         await commands.onAddParam(config, [], jsonFile);
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', expect.objectContaining({ offerSampleTask: false }), 'plain');
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', expect.objectContaining({ offerSampleTask: false }), 'plain', 'myId', expect.any(Set));
     });
 
     it('asks for a file when invoked without one and aborts if none is chosen', async () => {
@@ -173,16 +191,32 @@ describe('onEdit', () => {
 });
 
 describe('onCopyCmd', () => {
-    it('copies the input reference', async () => {
-        showQuickPick.mockResolvedValueOnce({ target: 'input' });
+    // resolve the quick pick to the offered item whose label matches
+    const pickByLabel = (label: string) =>
+        showQuickPick.mockImplementationOnce(async (items: Array<{ label: string }>) => items.find((item) => item.label === label));
+
+    it('offers and copies the input reference for a plain param', async () => {
+        pickByLabel('Copy Input Reference');
         await commands.onCopyCmd(fakeParam({}));
         expect(writeText).toHaveBeenCalledWith('${input:myId}');
     });
 
-    it('copies the command reference', async () => {
-        showQuickPick.mockResolvedValueOnce({ target: 'command' });
+    it('offers and copies the command reference for a plain param', async () => {
+        pickByLabel('Copy Command Reference');
         await commands.onCopyCmd(fakeParam({}));
         expect(writeText).toHaveBeenCalledWith('${command:statusBarParam.get.myId}');
+    });
+
+    it('offers a per-key command reference for a named param (not the broken keyless ones)', async () => {
+        const param = fakeParam({ valuesDelegate: { getSecondaryKeys: () => ['cc', 'cxx'] } });
+        let offered: Array<{ reference: string }> = [];
+        showQuickPick.mockImplementationOnce(async (items: Array<{ reference: string }>) => {
+            offered = items;
+            return items[0];
+        });
+        await commands.onCopyCmd(param);
+        expect(offered.map((item) => item.reference)).toEqual(['${command:statusBarParam.get.myId.cc}', '${command:statusBarParam.get.myId.cxx}']);
+        expect(writeText).toHaveBeenCalledWith('${command:statusBarParam.get.myId.cc}');
     });
 
     it('copies nothing when cancelled', async () => {

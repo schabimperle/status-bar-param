@@ -22,6 +22,7 @@ import {
     ArrayOptions,
     ArrayValue,
     CommandOptions,
+    MapValueObject,
     Options,
     validateArrayOptionsInput,
     validateCommandOptionsInput,
@@ -367,7 +368,7 @@ export class JsonFile implements Disposable {
         }
         // command must be exactly `get.<id>`: the schema gate only checks the prefix,
         // but Copy/duplicate-detection derive it from id, so a mismatch is broken
-        if (input.command !== `${Strings.EXTENSION_ID}.get.${input.id}`) {
+        if (input.command !== Strings.getCommandId(input.id)) {
             return;
         }
 
@@ -474,7 +475,7 @@ export class JsonFile implements Disposable {
         // (still openable without the picker) rather than a task-less, inputs-only file
         const forcedTask = !addSampleTask && tasks.length === 0;
         if (addSampleTask || forcedTask) {
-            tasks.push(JsonFile.buildSampleTask(id));
+            tasks.push(JsonFile.buildSampleTask(id, JsonFile.secondaryKeysOf(args)));
             await tasksConfig.update('tasks', tasks, ConfigurationTarget.Global);
         }
         // re-read from a fresh config snapshot (the one above predates the tasks write)
@@ -504,18 +505,44 @@ export class JsonFile implements Disposable {
     // the extension's input entry: a command input that resolves via this param's
     // generated retrieval command. Shared by the text-edit and config write paths.
     private static buildInput(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions) {
-        return { id, type: 'command', command: `${Strings.EXTENSION_ID}.get.${id}`, args };
+        return { id, type: 'command', command: Strings.getCommandId(id), args };
     }
 
-    // a runnable example task that echoes the param's value, to show how `${input:id}`
-    // is used. Shared by the text-edit and config write paths.
-    private static buildSampleTask(id: string) {
+    // the named-output keys defined by these args (first-seen order), or [] for a
+    // plain/labelled/command param. Lets buildSampleTask demonstrate the per-key
+    // `…get.<id>.<key>` references a named value needs.
+    private static secondaryKeysOf(args: ArrayValue[] | ArrayOptions | CommandOptions): string[] {
+        const values = Array.isArray(args) ? args : (args as ArrayOptions).values;
+        if (!Array.isArray(values)) {
+            return [];
+        }
+        const keys: string[] = [];
+        for (const value of values) {
+            // a named value is an object whose `value` is itself a map of outputs
+            if (value && typeof value === 'object' && typeof (value as MapValueObject).value === 'object') {
+                for (const key of Object.keys((value as MapValueObject).value)) {
+                    if (!keys.includes(key)) {
+                        keys.push(key);
+                    }
+                }
+            }
+        }
+        return keys;
+    }
+
+    // a runnable example task that echoes the param's value, to show how it's used.
+    // For a named (map) value the keyless `${input:id}` resolves to an empty string, so
+    // reference each output via its `${command:…get.<id>.<key>}` instead. Shared by the
+    // text-edit and config write paths.
+    private static buildSampleTask(id: string, secondaryKeys: string[] = []) {
+        const reference =
+            secondaryKeys.length > 0 ? secondaryKeys.map((key) => `${key}=\${command:${Strings.getCommandId(id)}.${key}}`).join(' ') : `\${input:${id}}`;
         return {
             label: `echo value of ${id}`,
             type: 'shell',
             // single-quote so the JSON needs no escaped " (which would distract
-            // from the `${input:...}` reference)
-            command: `echo 'Current value of ${id} is \${input:${id}}.'`,
+            // from the `${...}` reference)
+            command: `echo 'Current value of ${id} is ${reference}.'`,
             problemMatcher: [],
         };
     }
@@ -564,7 +591,10 @@ export class JsonFile implements Disposable {
             }
             // derive the indexed path locally rather than mutating the shared struct
             const taskPath = [...jsoncPaths.tasksPath, tasksRoot.tasks.length];
-            fileContent = jsonc.applyEdits(fileContent, jsonc.modify(fileContent, taskPath, JsonFile.buildSampleTask(id), { formattingOptions }));
+            fileContent = jsonc.applyEdits(
+                fileContent,
+                jsonc.modify(fileContent, taskPath, JsonFile.buildSampleTask(id, JsonFile.secondaryKeysOf(args)), { formattingOptions }),
+            );
             // label the task so it's clear it only demonstrates the parameter
             fileContent = this.withCommentAboveNode(fileContent, taskPath, `// Sample task demonstrating the use of the '${id}' parameter.`);
         }

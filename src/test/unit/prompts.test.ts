@@ -79,6 +79,20 @@ describe('promptParamId', () => {
         // the allow-list still accepts letters, digits, and _ . -
         expect(validateInput('ok_id.1-2')).toBeUndefined();
         expect(validateInput('nospace')).toBeUndefined();
+        // reserved map-key names are NOT rejected for an id (an id never indexes a map,
+        // so the prototype-pollution rule applies only to named-output keys)
+        expect(validateInput('constructor')).toBeUndefined();
+        expect(validateInput('__proto__')).toBeUndefined();
+    });
+
+    it('rejects a dotted id whose command collides with an existing named-output command', async () => {
+        showInputBox.mockResolvedValueOnce('ok');
+        await prompts.promptParamId([], new Set(['statusBarParam.get.compiler.cc']));
+        const { validateInput } = showInputBox.mock.calls.at(-1)![0];
+        // id `compiler.cc` would register the same command as `compiler` + key `cc`
+        expect(validateInput('compiler.cc')).toBeTruthy();
+        // a non-colliding dotted id is still fine
+        expect(validateInput('compiler.cxx')).toBeUndefined();
     });
 });
 
@@ -112,7 +126,19 @@ describe('promptParamArgs (array)', () => {
     it('wraps the values in an options object when canPickMany is picked', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
         advanced('canPickMany');
-        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({ args: { values: ['a', 'b'], canPickMany: true }, addSampleTask: false });
+        showInputBox.mockResolvedValueOnce(''); // join-separator follow-up: keep the default
+        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({
+            args: { values: ['a', 'b'], canPickMany: true },
+            addSampleTask: false,
+        });
+    });
+
+    it('does not offer the join separator as a standalone advanced option (it follows enabling multi-select)', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        noAdvanced();
+        await prompts.promptParamArgs('array', CTX, 'plain');
+        const advancedItems = showQuickPick.mock.calls.at(-1)![0] as { key: string }[];
+        expect(advancedItems.some((item) => item.key === 'joinSeparator')).toBe(false);
     });
 
     it('sets the status-bar toggles to the opposite of the global default', async () => {
@@ -145,7 +171,10 @@ describe('promptParamArgs (array)', () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
         showInputBox.mockResolvedValueOnce('Apple').mockResolvedValueOnce('');
         noAdvanced();
-        await expect(prompts.promptParamArgs('array', CTX, 'labelled')).resolves.toEqual({ args: [{ value: 'a', displayValue: 'Apple' }, 'b'], addSampleTask: false });
+        await expect(prompts.promptParamArgs('array', CTX, 'labelled')).resolves.toEqual({
+            args: [{ value: 'a', displayValue: 'Apple' }, 'b'],
+            addSampleTask: false,
+        });
     });
 
     it('aborts when a display label is escaped', async () => {
@@ -180,6 +209,21 @@ describe('promptParamArgs (array)', () => {
         });
     });
 
+    it('rejects a duplicate value label in the named flow (the label is the preselect handle)', async () => {
+        showInputBox
+            .mockResolvedValueOnce('cc')
+            .mockResolvedValueOnce('') // single key
+            .mockResolvedValueOnce('gcc')
+            .mockResolvedValueOnce('gcc') // row 1: label + cc output
+            .mockResolvedValueOnce(''); // 2nd label prompt: empty → finish
+        noAdvanced();
+        await prompts.promptParamArgs('array', CTX, 'named');
+        // the 2nd label prompt validates against the already-used 'gcc'
+        const { validateInput } = showInputBox.mock.calls.at(-1)![0];
+        expect(validateInput('gcc')).toBeTruthy();
+        expect(validateInput('clang')).toBeUndefined();
+    });
+
     it('dedupes repeated output keys', async () => {
         showInputBox
             .mockResolvedValueOnce('cc')
@@ -193,6 +237,26 @@ describe('promptParamArgs (array)', () => {
             args: [{ displayValue: 'gcc', value: { cc: 'gcc' } }],
             addSampleTask: false,
         });
+    });
+
+    it('rejects an output key whose command collides with an existing parameter command', async () => {
+        showInputBox.mockResolvedValueOnce(''); // back out after capturing validateInput
+        await prompts.promptParamArgs('array', CTX, 'named', 'compiler', new Set(['statusBarParam.get.compiler.cc']));
+        const { validateInput } = showInputBox.mock.calls.at(-1)![0];
+        // key `cc` would make this param's `…get.compiler.cc` clash with the existing command
+        expect(validateInput('cc')).toBeTruthy();
+        expect(validateInput('cxx')).toBeUndefined();
+    });
+
+    it('rejects reserved map-key names as output keys (prototype-pollution guard)', async () => {
+        showInputBox.mockResolvedValueOnce(''); // back out after capturing validateInput
+        await prompts.promptParamArgs('array', CTX, 'named', 'compiler');
+        const { validateInput } = showInputBox.mock.calls.at(-1)![0];
+        // these would clash with JS object internals when used to index the value map
+        expect(validateInput('__proto__')).toBeTruthy();
+        expect(validateInput('constructor')).toBeTruthy();
+        expect(validateInput('prototype')).toBeTruthy();
+        expect(validateInput('cc')).toBeUndefined();
     });
 
     it('backs out of the named flow when no output key is entered', async () => {
@@ -225,7 +289,7 @@ describe('promptParamArgs (array)', () => {
         await expect(prompts.promptParamArgs('array', CTX, 'named')).resolves.toBeUndefined();
     });
 
-    it('does not offer the sample task for the named shape (its keyless ${input:id} would not resolve)', async () => {
+    it('offers the sample task for the named shape too (it references the per-key commands)', async () => {
         showInputBox
             .mockResolvedValueOnce('cc')
             .mockResolvedValueOnce('') // keys
@@ -235,12 +299,12 @@ describe('promptParamArgs (array)', () => {
         noAdvanced();
         await prompts.promptParamArgs('array', CTX, 'named');
         // the advanced multi-select is the only showQuickPick call here (the value
-        // shape is now passed in, not picked), so its items must omit the sample task
+        // shape is passed in, not picked); the sample-task item is present
         const advancedItems = showQuickPick.mock.calls.at(-1)![0] as { key: string }[];
-        expect(advancedItems.some((item) => item.key === 'sampleTask')).toBe(false);
+        expect(advancedItems.some((item) => item.key === 'sampleTask')).toBe(true);
     });
 
-    it('sets an initialSelection picked from named values by their canonical-key identity', async () => {
+    it('sets an initialSelection for named values by their display label (not the canonical identity)', async () => {
         showInputBox
             .mockResolvedValueOnce('cc')
             .mockResolvedValueOnce('') // single key
@@ -248,10 +312,10 @@ describe('promptParamArgs (array)', () => {
             .mockResolvedValueOnce('gcc') // one row
             .mockResolvedValueOnce(''); // finish rows
         advanced('initialSelection');
-        // the picker offers each named value under its canonical identity, not its label
-        showQuickPick.mockResolvedValueOnce({ value: '{"cc":"gcc"}' });
+        // the picker offers each named value under its readable label, not the opaque JSON
+        showQuickPick.mockResolvedValueOnce({ value: 'gcc' });
         await expect(prompts.promptParamArgs('array', CTX, 'named')).resolves.toEqual({
-            args: { values: [{ displayValue: 'gcc', value: { cc: 'gcc' } }], initialSelection: '{"cc":"gcc"}' },
+            args: { values: [{ displayValue: 'gcc', value: { cc: 'gcc' } }], initialSelection: 'gcc' },
             addSampleTask: false,
         });
     });
@@ -260,12 +324,16 @@ describe('promptParamArgs (array)', () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
         advanced('initialSelection');
         showQuickPick.mockResolvedValueOnce({ value: 'b' });
-        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({ args: { values: ['a', 'b'], initialSelection: 'b' }, addSampleTask: false });
+        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({
+            args: { values: ['a', 'b'], initialSelection: 'b' },
+            addSampleTask: false,
+        });
     });
 
     it('sets a multi initialSelection when canPickMany is also picked', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
         advanced('canPickMany', 'initialSelection');
+        showInputBox.mockResolvedValueOnce(''); // join-separator follow-up: keep the default
         showQuickPick.mockResolvedValueOnce([{ value: 'a' }, { value: 'b' }]);
         await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({
             args: { values: ['a', 'b'], canPickMany: true, initialSelection: ['a', 'b'] },
@@ -276,6 +344,7 @@ describe('promptParamArgs (array)', () => {
     it('treats an empty initial-selection pick as "no selection" (not abort)', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
         advanced('canPickMany', 'initialSelection');
+        showInputBox.mockResolvedValueOnce(''); // join-separator follow-up: keep the default
         showQuickPick.mockResolvedValueOnce([]); // picked none
         await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({ args: { values: ['a'], canPickMany: true }, addSampleTask: false });
     });
@@ -287,27 +356,25 @@ describe('promptParamArgs (array)', () => {
         await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toBeUndefined();
     });
 
-    it('collects a custom joinSeparator (stored as the literal the user typed)', async () => {
+    it('interprets backslash escapes in the joinSeparator follow-up (\\n -> newline), like the command separator', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
-        advanced('canPickMany', 'joinSeparator');
-        showInputBox.mockResolvedValueOnce('\\n'); // user typed backslash-n; stored literally
-        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({
-            args: { values: ['a', 'b'], canPickMany: true, joinSeparator: '\\n' },
-            addSampleTask: false,
-        });
+        advanced('canPickMany');
+        showInputBox.mockResolvedValueOnce('\\n'); // user typed backslash-n
+        const result = (await prompts.promptParamArgs('array', CTX, 'plain')) as { args: { joinSeparator: string } };
+        expect(result.args.joinSeparator).toBe('\n'); // a real newline, not the 2-char string
     });
 
-    it('skips an empty joinSeparator entry, keeping the default', async () => {
+    it('skips an empty join-separator entry, keeping the default', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
-        advanced('joinSeparator');
-        showInputBox.mockResolvedValueOnce(''); // empty → keep default
-        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({ args: ['a'], addSampleTask: false });
+        advanced('canPickMany');
+        showInputBox.mockResolvedValueOnce(''); // empty separator → keep default (no joinSeparator written)
+        await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toEqual({ args: { values: ['a'], canPickMany: true }, addSampleTask: false });
     });
 
-    it('aborts when the joinSeparator entry is escaped', async () => {
+    it('aborts when the join-separator entry is escaped', async () => {
         showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
-        advanced('joinSeparator');
-        showInputBox.mockResolvedValueOnce(undefined); // escaped
+        advanced('canPickMany');
+        showInputBox.mockResolvedValueOnce(undefined); // separator escaped
         await expect(prompts.promptParamArgs('array', CTX, 'plain')).resolves.toBeUndefined();
     });
 });
@@ -342,10 +409,10 @@ describe('promptParamArgs (command)', () => {
         expect(result.args.separator).toBe('\n'); // a real newline, not the 2-char string
     });
 
-    it('collects a joinSeparator on a command param too', async () => {
+    it('collects a joinSeparator on a command param too (follow-up to canPickMany)', async () => {
         showInputBox.mockResolvedValueOnce('ls');
-        advanced('canPickMany', 'joinSeparator');
-        showInputBox.mockResolvedValueOnce(', '); // joinSeparator entered in collectOptions
+        advanced('canPickMany');
+        showInputBox.mockResolvedValueOnce(', '); // separator entered in collectOptions
         await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
             args: { shellCmd: 'ls', canPickMany: true, joinSeparator: ', ' } as CommandOptions,
             addSampleTask: false,
@@ -379,6 +446,7 @@ describe('promptParamArgs (command)', () => {
     it('collects multiple free-text initial selections when canPickMany is picked', async () => {
         showInputBox.mockResolvedValueOnce('ls');
         advanced('canPickMany', 'initialSelection');
+        showInputBox.mockResolvedValueOnce(''); // join-separator follow-up: keep the default
         showInputBox.mockResolvedValueOnce('main').mockResolvedValueOnce('dev').mockResolvedValueOnce(''); // two values then finish
         await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
             args: { shellCmd: 'ls', canPickMany: true, initialSelection: ['main', 'dev'] } as CommandOptions,
