@@ -78,3 +78,10 @@ trigger IntelliSense):
   single command namespace.
 - To adjust or remove a parameter, edit or delete its entry in the `inputs`
   section of the configuration file (or use the tree view's actions).
+- **A substituted value is a single argument.** VS Code expands `${input:<name>}`
+  / `${command:...}` to one string, and each element of a task's `args` array is
+  passed as a single argument — so a value containing spaces is **not** split into
+  several arguments (a multi-select join is one argument too). To turn one value
+  into multiple arguments, reference it in a `shell` task's `command` string (the
+  shell splits on spaces — mind quoting), or pass values through `options.env` or
+  one `args` element each.
