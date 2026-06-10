@@ -60,6 +60,37 @@ trigger IntelliSense):
 - **Display labels** — write a value as
   `{ "value": "raw", "displayValue": "Label" }` to show a friendly label in the
   bar and picker while storing and returning the raw value.
+- **Named (secondary) values** — make a value's `value` an object (with a required
+  `displayValue` label) so one selection drives several named outputs, each fetched
+  via `${command:statusBarParam.get.<id>.<key>}`. Many tools already provide this
+  kind of indirection (e.g. CMake presets); reach for this when none fits. Example —
+  a compiler picker feeding both `CC` and `CXX`:
+
+  ```jsonc
+  "args": {
+      "values": [
+          { "displayValue": "gcc",   "value": { "cc": "gcc",   "cxx": "g++" } },
+          { "displayValue": "clang", "value": { "cc": "clang", "cxx": "clang++" } }
+      ]
+  }
+  ```
+
+  ```jsonc
+  "options": {
+      "env": {
+          "CC":  "${command:statusBarParam.get.compiler.cc}",
+          "CXX": "${command:statusBarParam.get.compiler.cxx}"
+      }
+  }
+  ```
+
+  A keyless reference (`${input:<id>}`) has no single value for a map and resolves
+  to an empty string with a warning — always reference a key. The add-parameter
+  wizard can build these too: pick **Named outputs** when it asks how to define the
+  values, name the output keys once (e.g. `cc`, `cxx`), then give each selection a
+  label and a value per key. A single parameter is wholly plain/labelled **or**
+  named — the two can't be mixed, since a keyless reference would have no meaning for
+  the named entries.
 - **`cwd` / `separator`** (command type) — the directory to run the command in,
   and the string used to split its output into values.
 - **`showName` / `showSelection`** — override the global display settings for a

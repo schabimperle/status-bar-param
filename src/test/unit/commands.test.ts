@@ -46,16 +46,35 @@ describe('onAddParam', () => {
         } as unknown as JsonFile & { addParam: jest.Mock };
 
         (prompts.promptParamType as jest.Mock).mockResolvedValue('array');
+        // the value shape is gathered after the type, before the id
+        (prompts.promptValueShape as jest.Mock).mockResolvedValue('plain');
         (prompts.promptParamId as jest.Mock).mockResolvedValue('myId');
         // promptParamArgs now returns the args plus the sample-task choice
         (prompts.promptParamArgs as jest.Mock).mockResolvedValue({ args: ['a', 'b'], addSampleTask: false });
     });
 
-    it('writes the gathered parameter and passes the wizard context', async () => {
+    it('writes the gathered parameter and passes the wizard context and value shape', async () => {
         await commands.onAddParam(config, [], jsonFile);
-        // the global defaults + sample-task offer are threaded into the prompt
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true });
+        // the global defaults + sample-task offer + chosen value shape are threaded into the prompt
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', { showNamesDefault: false, showSelectionsDefault: true, offerSampleTask: true }, 'plain');
         expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['a', 'b'], false);
+    });
+
+    it('gathers the value shape after the type and before the id (array only)', async () => {
+        await commands.onAddParam(config, [], jsonFile);
+        const shapeOrder = (prompts.promptValueShape as jest.Mock).mock.invocationCallOrder[0];
+        const typeOrder = (prompts.promptParamType as jest.Mock).mock.invocationCallOrder[0];
+        const idOrder = (prompts.promptParamId as jest.Mock).mock.invocationCallOrder[0];
+        expect(typeOrder).toBeLessThan(shapeOrder);
+        expect(shapeOrder).toBeLessThan(idOrder);
+    });
+
+    it('does not ask for a value shape for a command param', async () => {
+        (prompts.promptParamType as jest.Mock).mockResolvedValue('command');
+        await commands.onAddParam(config, [], jsonFile);
+        expect(prompts.promptValueShape).not.toHaveBeenCalled();
+        // a command param threads no shape (undefined) into the args step
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('command', expect.any(Object), undefined);
     });
 
     it('forwards the sample-task choice from the advanced step', async () => {
@@ -67,7 +86,7 @@ describe('onAddParam', () => {
     it('does not offer a sample task for launch.json', async () => {
         (jsonFile as unknown as { isLaunchJson: boolean }).isLaunchJson = true;
         await commands.onAddParam(config, [], jsonFile);
-        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', expect.objectContaining({ offerSampleTask: false }));
+        expect(prompts.promptParamArgs).toHaveBeenCalledWith('array', expect.objectContaining({ offerSampleTask: false }), 'plain');
     });
 
     it('asks for a file when invoked without one and aborts if none is chosen', async () => {
@@ -79,6 +98,7 @@ describe('onAddParam', () => {
 
     it.each([
         ['type', () => (prompts.promptParamType as jest.Mock).mockResolvedValue(undefined)],
+        ['value shape', () => (prompts.promptValueShape as jest.Mock).mockResolvedValue(undefined)],
         ['id', () => (prompts.promptParamId as jest.Mock).mockResolvedValue(undefined)],
         ['args', () => (prompts.promptParamArgs as jest.Mock).mockResolvedValue(undefined)],
     ])('aborts without writing when %s is cancelled', async (_label, arrange) => {

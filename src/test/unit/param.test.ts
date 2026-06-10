@@ -20,6 +20,7 @@ interface SetupOptions {
     showNames?: boolean;
     showSelections?: boolean;
     stored?: Record<string, unknown>;
+    secondaryKeys?: string[];
 }
 
 function setup(options: SetupOptions = {}) {
@@ -42,9 +43,11 @@ function setup(options: SetupOptions = {}) {
         showSelections: options.showSelections ?? true,
     } as unknown as ExtensionConfig;
     const values = options.values ?? [A, B];
+    const secondaryKeys = options.secondaryKeys ?? [];
     const delegate = {
         getValues: jest.fn(async () => (options.unavailable ? undefined : values.map((v) => ({ ...v })))),
         getIcon: jest.fn(() => new vscode.ThemeIcon('array')),
+        getSecondaryKeys: jest.fn(() => [...secondaryKeys]),
     } as unknown as ValuesDelegate;
     const jsonFile = { uri: vscode.Uri.file('/ws/.vscode/tasks.json'), changeEmitter: new vscode.EventEmitter() } as unknown as JsonFile;
     const param = new Param('myId', COMMAND, { ...options.opts }, 1, ['inputs'], jsonFile, delegate, config);
@@ -205,6 +208,87 @@ describe('Param.storeSelectedValues / onGet', () => {
         await flush();
         param.storeSelectedValues([A, B]);
         expect(param.onGet()).toBe('a b');
+    });
+});
+
+describe('Param secondary (named) values', () => {
+    // map entries: value is the canonical identity, secondaryValues the named outputs
+    const GCC: DisplayableValue = { value: '{"cc":"gcc","cxx":"g++"}', displayValue: 'gcc', secondaryValues: { cc: 'gcc', cxx: 'g++' } };
+    const CLANG: DisplayableValue = { value: '{"cc":"clang","cxx":"clang++"}', displayValue: 'clang', secondaryValues: { cc: 'clang', cxx: 'clang++' } };
+    const KEYS = ['cc', 'cxx'];
+
+    beforeEach(() => (vscode.window.showWarningMessage as jest.Mock).mockClear());
+
+    it('registers a retrieval command per secondary key', () => {
+        setup({ values: [GCC, CLANG], secondaryKeys: KEYS });
+        expect(vscode.commands.registerCommand).toHaveBeenCalledWith(`${COMMAND}.cc`, expect.any(Function));
+        expect(vscode.commands.registerCommand).toHaveBeenCalledWith(`${COMMAND}.cxx`, expect.any(Function));
+    });
+
+    it('registers no secondary command when there are no keys', () => {
+        setup();
+        const ids = (vscode.commands.registerCommand as jest.Mock).mock.calls.map((call) => call[0]);
+        expect(ids).toEqual([COMMAND]);
+    });
+
+    it('onGetSecondary returns the selected entry secondary for the key', async () => {
+        const { param } = setup({ values: [GCC, CLANG], secondaryKeys: KEYS, stored: { [COMMAND]: [GCC.value] } });
+        await flush();
+        await expect(param.onGetSecondary('cxx')).resolves.toBe('g++');
+    });
+
+    it('onGetSecondary returns empty when nothing is selected', async () => {
+        const { param, store } = setup({ values: [GCC], secondaryKeys: KEYS, opts: { canPickMany: true } });
+        await flush();
+        store.delete(COMMAND);
+        await expect(param.onGetSecondary('cxx')).resolves.toBe('');
+    });
+
+    it('onGetSecondary returns empty when the selected entry lacks the key', async () => {
+        const partial: DisplayableValue = { value: '{"cc":"tcc"}', displayValue: 'tcc', secondaryValues: { cc: 'tcc' } };
+        const { param } = setup({ values: [GCC, partial], secondaryKeys: KEYS, stored: { [COMMAND]: [partial.value] } });
+        await flush();
+        await expect(param.onGetSecondary('cxx')).resolves.toBe('');
+    });
+
+    it('onGetSecondary joins across a multi-selection', async () => {
+        const { param } = setup({ values: [GCC, CLANG], secondaryKeys: KEYS, opts: { canPickMany: true }, stored: { [COMMAND]: [GCC.value, CLANG.value] } });
+        await flush();
+        await expect(param.onGetSecondary('cxx')).resolves.toBe('g++ clang++');
+    });
+
+    it('onGet on a keyless map warns once and contributes nothing, still joining string entries', async () => {
+        const { param } = setup({ values: [GCC, A], secondaryKeys: KEYS, opts: { canPickMany: true }, stored: { [COMMAND]: [GCC.value, 'a'] } });
+        await flush();
+        await expect(param.onGet()).resolves.toBe('a');
+        await param.onGet(); // a second read must not re-warn
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('onGet skips a map entry sitting between string entries', async () => {
+        const { param } = setup({ values: [GCC, A, B], secondaryKeys: KEYS, opts: { canPickMany: true }, stored: { [COMMAND]: ['a', GCC.value, 'b'] } });
+        await flush();
+        await expect(param.onGet()).resolves.toBe('a b');
+    });
+
+    it('getSelectionText shows the display label and never warns', async () => {
+        const { param } = setup({ values: [GCC, CLANG], secondaryKeys: KEYS, stored: { [COMMAND]: [GCC.value] } });
+        await flush();
+        expect(param.getSelectionText()).toBe('gcc');
+        expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    });
+
+    it('stays functional when a secondary command id is already taken', async () => {
+        (vscode.commands.registerCommand as jest.Mock).mockImplementation((id: string) => {
+            if (id === `${COMMAND}.cxx`) {
+                throw new Error('already exists');
+            }
+            return new vscode.Disposable(() => undefined);
+        });
+        const { param } = setup({ values: [GCC], secondaryKeys: KEYS, stored: { [COMMAND]: [GCC.value] } });
+        await flush();
+        expect(param.registrationFailed).toBe(false);
+        await expect(param.onGetSecondary('cc')).resolves.toBe('gcc');
     });
 });
 

@@ -29,6 +29,37 @@ describe('schema validation', () => {
         it('rejects a value object missing the required value', () => {
             expect(validateArrayOptionsInput({ values: [{ displayValue: 'Label' }] })).toBe(false);
         });
+        it('accepts a map value with a displayValue (named secondary outputs)', () => {
+            expect(validateArrayOptionsInput({ values: [{ displayValue: 'gcc', value: { cc: 'gcc', cxx: 'g++' } }] })).toBe(true);
+        });
+        it('rejects a map value without the required displayValue', () => {
+            expect(validateArrayOptionsInput({ values: [{ value: { cc: 'gcc' } }] })).toBe(false);
+        });
+        it('rejects a map value with a non-string output', () => {
+            expect(validateArrayOptionsInput({ values: [{ displayValue: 'x', value: { cc: 2 } }] })).toBe(false);
+        });
+        it('rejects an empty map value', () => {
+            expect(validateArrayOptionsInput({ values: [{ displayValue: 'x', value: {} }] })).toBe(false);
+        });
+        it('accepts an all-named array', () => {
+            expect(
+                validateArrayOptionsInput({
+                    values: [
+                        { displayValue: 'gcc', value: { cc: 'gcc' } },
+                        { displayValue: 'clang', value: { cc: 'clang' } },
+                    ],
+                }),
+            ).toBe(true);
+        });
+        it('rejects mixing plain/labelled and named values in one array (no coherent keyless get)', () => {
+            // a keyless ${command:…get.<id>} has no meaning for a named entry, so a
+            // mixed array leaves no substitution that works for every selection
+            expect(validateArrayOptionsInput({ values: ['a', { displayValue: 'gcc', value: { cc: 'gcc' } }] })).toBe(false);
+            expect(validateArrayOptionsInput({ values: [{ value: 'v', displayValue: 'Label' }, { displayValue: 'gcc', value: { cc: 'gcc' } }] })).toBe(false);
+        });
+        it('rejects the mix in the bare-array form too', () => {
+            expect(validateArrayOptionsInput(['a', { displayValue: 'gcc', value: { cc: 'gcc' } }] as never)).toBe(false);
+        });
         it('rejects the object form without values', () => {
             expect(validateArrayOptionsInput({ canPickMany: true })).toBe(false);
         });

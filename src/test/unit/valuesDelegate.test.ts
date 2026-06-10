@@ -53,6 +53,28 @@ describe('ArrayValuesDelegate', () => {
         first!.push({ value: 'x', displayValue: 'x' });
         await expect(delegate.getValues()).resolves.toHaveLength(1);
     });
+
+    it('normalizes a map value: canonical (key-sorted) identity, displayValue, secondaryValues', async () => {
+        const delegate = new ArrayValuesDelegate({ values: [{ displayValue: 'gcc', value: { cxx: 'g++', cc: 'gcc' } }] });
+        await expect(delegate.getValues()).resolves.toEqual([
+            // keys sorted in the identity so re-ordering the map keeps the same stored selection
+            { value: '{"cc":"gcc","cxx":"g++"}', displayValue: 'gcc', secondaryValues: { cxx: 'g++', cc: 'gcc' } },
+        ]);
+    });
+
+    it('exposes no secondary keys for plain or string-value entries', () => {
+        expect(new ArrayValuesDelegate({ values: ['a', { value: 'v', displayValue: 'L' }] }).getSecondaryKeys()).toEqual([]);
+    });
+
+    it('unions map keys across values in first-seen order without duplicates', () => {
+        const delegate = new ArrayValuesDelegate({
+            values: [
+                { displayValue: 'gcc', value: { cxx: 'g++', extra: '1' } },
+                { displayValue: 'clang', value: { cxx: 'clang++', cc: 'clang' } },
+            ],
+        });
+        expect(delegate.getSecondaryKeys()).toEqual(['cxx', 'extra', 'cc']);
+    });
 });
 
 describe('CommandValuesDelegate', () => {
@@ -63,6 +85,10 @@ describe('CommandValuesDelegate', () => {
 
     it('exposes the terminal icon', () => {
         expect(makeDelegate({ shellCmd: 'ls' }).getIcon().id).toBe('terminal');
+    });
+
+    it('never exposes secondary keys (stdout lines are not named maps)', () => {
+        expect(makeDelegate({ shellCmd: 'ls' }).getSecondaryKeys()).toEqual([]);
     });
 
     it('returns undefined in an untrusted workspace without executing anything', async () => {

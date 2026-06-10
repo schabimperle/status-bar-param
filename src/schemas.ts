@@ -11,12 +11,29 @@ export interface Options {
     joinSeparator?: string;
 }
 
+// Internal, normalized selectable value. `value` is the returned/persisted string;
+// for a map entry it's a canonical key (see ArrayValuesDelegate) and `secondaryValues`
+// holds the named outputs reachable via `…get.<id>.<key>`.
 export interface DisplayableValue {
     displayValue: string;
     value: string;
+    secondaryValues?: { [key: string]: string };
 }
 
-export type ArrayValue = DisplayableValue | string;
+// JSON array value object whose value is a single returned string.
+export interface StringValueObject {
+    value: string;
+    displayValue?: string;
+}
+
+// JSON array value object whose value is a map of named outputs; `displayValue` is
+// required, since a map has no single string to show in the status bar.
+export interface MapValueObject {
+    value: { [key: string]: string };
+    displayValue: string;
+}
+
+export type ArrayValue = string | StringValueObject | MapValueObject;
 
 export interface ArrayOptions extends Options {
     values: ArrayValue[];

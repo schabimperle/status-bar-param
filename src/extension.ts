@@ -98,7 +98,7 @@ class StatusBarParam {
             .flatMap((jsonFile) => jsonFile.params)
             .map((param) => ({
                 label: `$(${param.getIcon().id}) ${param.id}`,
-                description: param.onGet(),
+                description: param.getSelectionText(),
                 param,
             }));
         const res = await window.showQuickPick(items, {

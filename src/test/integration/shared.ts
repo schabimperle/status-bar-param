@@ -93,6 +93,38 @@ export function sharedChecks({ timeoutMs }: { timeoutMs: number }): Check[] {
                 assert.strictEqual(value, 'cat');
             },
         },
+        {
+            name: 'resolves a named (map) value through its per-key commands',
+            fn: async () => {
+                // the default (first) selection is the gcc map; its keys resolve independently
+                const cc = await waitFor(
+                    () => getValue('compiler.cc'),
+                    (v) => v === 'gcc',
+                    timeoutMs,
+                );
+                assert.strictEqual(cc, 'gcc');
+                assert.strictEqual(await getValue('compiler.cxx'), 'g++');
+            },
+        },
+        {
+            name: 'returns empty for a keyless read of a map param',
+            fn: async () => {
+                // a map entry has no single keyless value (the extension also warns)
+                assert.strictEqual(await getValue('compiler'), '');
+            },
+        },
+        {
+            name: 'joins a multi-selection with the configured joinSeparator',
+            fn: async () => {
+                // initialSelection ['a','b'] + joinSeparator ',' -> 'a,b'
+                const value = await waitFor(
+                    () => getValue('multi'),
+                    (v) => v === 'a,b',
+                    timeoutMs,
+                );
+                assert.strictEqual(value, 'a,b');
+            },
+        },
     ];
 }
 

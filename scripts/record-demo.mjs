@@ -53,6 +53,11 @@ async function flowAdd(page) {
     // 2) pick type -> Array (first)
     await waitForPrompt(page, 'type of the parameter');
     await acceptQuick(page);
+    // 2b) value shape -> Plain values (first row). The wizard asks how the values
+    //     are defined (plain / display labels / named outputs) right after the type
+    //     and before the name; the demo param is a plain list, so accept the first.
+    await waitForPrompt(page, 'how to define');
+    await acceptQuick(page);
     // 3) name
     await waitForPrompt(page, 'name of the parameter');
     await typeQuick(page, PARAM.name);

@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import * as path from 'path';
 import { ThemeIcon, Uri, window, workspace } from 'vscode';
-import { ArrayOptions, CommandOptions, DisplayableValue } from './schemas';
+import { ArrayOptions, CommandOptions, DisplayableValue, MapValueObject } from './schemas';
 
 // kill a hanging command instead of leaking a child process; cap output explicitly
 const EXEC_TIMEOUT_MS = 10_000;
@@ -21,24 +21,58 @@ export interface ValuesDelegate {
      * result exists (the user opening the picker); silent refreshes pass `false`.
      */
     getValues(force?: boolean): Promise<DisplayableValue[] | undefined>;
+
+    /**
+     * The union of named-output keys across all values (first-seen order), for which
+     * the owning Param registers a `…get.<id>.<key>` command. Empty unless a value
+     * defines a map of named outputs (always empty for command params).
+     */
+    getSecondaryKeys(): string[];
 }
 
 /** ValuesDelegate for a statically-defined array of values. */
 export class ArrayValuesDelegate implements ValuesDelegate {
     static readonly ICON = new ThemeIcon('array');
     private values: DisplayableValue[];
+    private secondaryKeys: string[];
 
     constructor(arrayOptions: ArrayOptions) {
-        // normalize to { value, displayValue }: plain strings duplicate value into
-        // displayValue; objects without a displayValue fall back to value (else the
-        // status bar would show `undefined`).
-        this.values = arrayOptions.values.map((value) =>
-            typeof value === 'string' ? { value, displayValue: value } : { value: value.value, displayValue: value.displayValue ?? value.value },
-        );
+        // normalize to { value, displayValue, secondaryValues? }: a plain string
+        // duplicates value into displayValue; a string-value object falls back to
+        // value when displayValue is absent; a map-value object keeps its required
+        // displayValue, stores the map as secondaryValues, and uses a canonical
+        // (key-sorted) JSON of the map as its persisted identity, so the stored
+        // selection survives re-ordering or relabeling.
+        this.values = arrayOptions.values.map((value) => {
+            if (typeof value === 'string') {
+                return { value, displayValue: value };
+            }
+            if (typeof value.value === 'object') {
+                // map-value object (its displayValue is required by the schema)
+                const map = (value as MapValueObject).value;
+                return { value: canonicalKey(map), displayValue: (value as MapValueObject).displayValue, secondaryValues: map };
+            }
+            return { value: value.value, displayValue: value.displayValue ?? value.value };
+        });
+        // union of secondary keys in first-seen order, deduped
+        const seen = new Set<string>();
+        this.secondaryKeys = [];
+        for (const value of this.values) {
+            for (const key of Object.keys(value.secondaryValues ?? {})) {
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    this.secondaryKeys.push(key);
+                }
+            }
+        }
     }
 
     getIcon() {
         return ArrayValuesDelegate.ICON;
+    }
+
+    getSecondaryKeys() {
+        return [...this.secondaryKeys];
     }
 
     getValues() {
@@ -46,6 +80,18 @@ export class ArrayValuesDelegate implements ValuesDelegate {
         // current selection to the front), which must not mutate our source order
         return Promise.resolve([...this.values]);
     }
+}
+
+// a stable identity for a named-value map: JSON with keys sorted, so two equal maps
+// (regardless of key order) produce the same persisted selection key. Exported so the
+// add-param wizard can derive the same identity when offering a named value as an
+// initial selection.
+export function canonicalKey(map: { [key: string]: string }): string {
+    const sorted: { [key: string]: string } = {};
+    for (const key of Object.keys(map).sort()) {
+        sorted[key] = map[key];
+    }
+    return JSON.stringify(sorted);
 }
 
 /** A cached command result, tagged with the command definition that produced it. */
@@ -84,6 +130,11 @@ export class CommandValuesDelegate implements ValuesDelegate {
 
     getIcon() {
         return CommandValuesDelegate.ICON;
+    }
+
+    // a command param's values are bare stdout lines, never named maps
+    getSecondaryKeys() {
+        return [];
     }
 
     async getValues(force = false): Promise<DisplayableValue[] | undefined> {

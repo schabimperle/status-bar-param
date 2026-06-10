@@ -1,7 +1,7 @@
 {
     "$id": "array_options_schema.json",
     "definitions": {
-        "arrayValue": {
+        "plainValue": {
             "oneOf": [
                 {
                     "type": "string"
@@ -23,16 +23,52 @@
                     ]
                 }
             ]
+        },
+        "namedValue": {
+            "type": "object",
+            "properties": {
+                "displayValue": {
+                    "type": "string",
+                    "description": "The label shown in the status bar (required, since a named-value map has no single string to display)."
+                },
+                "value": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "minProperties": 1,
+                    "description": "A map of named outputs, each retrievable via ${command:statusBarParam.get.<id>.<key>}. Lets one selection drive several outputs (e.g. a compiler pick yielding both cc and cxx)."
+                }
+            },
+            "required": [
+                "value",
+                "displayValue"
+            ],
+            "additionalProperties": false
+        },
+        "valueArray": {
+            "$comment": "Either a list of plain/labelled values or a list of named-output values, never a mix: a keyless ${command:…get.<id>} has no meaning for a named entry, so mixing leaves no substitution that works for every selection. anyOf (not oneOf) so an empty array — which matches both shapes — stays valid.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/plainValue"
+                    }
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/namedValue"
+                    }
+                }
+            ]
         }
     },
     "if": {
         "type": "array"
     },
     "then": {
-        "type": "array",
-        "items": {
-            "$ref": "#/definitions/arrayValue"
-        }
+        "$ref": "#/definitions/valueArray"
     },
     "else": {
         "allOf": [
@@ -43,11 +79,12 @@
                 "type": "object",
                 "properties": {
                     "values": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/definitions/arrayValue"
-                        },
-                        "description": "A list of parameter values to select from."
+                        "description": "A list of parameter values to select from.",
+                        "allOf": [
+                            {
+                                "$ref": "#/definitions/valueArray"
+                            }
+                        ]
                     }
                 },
                 "required": [

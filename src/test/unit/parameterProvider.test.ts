@@ -47,7 +47,7 @@ describe('ParameterProvider.getTreeItem', () => {
     it('renders a Param node', () => {
         const param = {
             id: 'myId',
-            onGet: () => 'selected',
+            getSelectionText: () => 'selected',
             getIcon: () => new vscode.ThemeIcon('array'),
         } as unknown as Param;
         const item = new ParameterProvider([], new vscode.EventEmitter()).getTreeItem(param);

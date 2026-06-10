@@ -43,6 +43,16 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     if (!type) {
         return;
     }
+    // for an array, pick the value shape (plain / labelled / named) right after the
+    // type — it reads as a refinement of "Array" and decides what the value prompts
+    // ask, so it belongs before the id rather than buried in the args step
+    let shape: prompts.ValueShape | undefined;
+    if (type === 'array') {
+        shape = await prompts.promptValueShape();
+        if (!shape) {
+            return;
+        }
+    }
     // ids share a single global command namespace, so reject existing ones up front
     const existingIds = jsonFiles.flatMap((file) => file.params).map((param) => param.id);
     const id = await prompts.promptParamId(existingIds);
@@ -51,11 +61,15 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     }
     // the advanced step phrases its status-bar toggles relative to the current
     // global defaults, and folds in the sample-task choice (skipped for launch.json)
-    const result = await prompts.promptParamArgs(type, {
-        showNamesDefault: config.showNames,
-        showSelectionsDefault: config.showSelections,
-        offerSampleTask: !jsonFile.isLaunchJson,
-    });
+    const result = await prompts.promptParamArgs(
+        type,
+        {
+            showNamesDefault: config.showNames,
+            showSelectionsDefault: config.showSelections,
+            offerSampleTask: !jsonFile.isLaunchJson,
+        },
+        shape,
+    );
     if (!result) {
         return;
     }

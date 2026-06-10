@@ -4,7 +4,9 @@ All notable changes to the "status-bar-param" extension will be documented in th
 
 ## [Unreleased]
 
+- Added named (secondary) values: a value's `value` can be a map of named outputs (with a required `displayValue`), each retrievable via `${command:statusBarParam.get.<id>.<key>}`, so one selection can drive several outputs — for example a compiler picker feeding both `CC` and `CXX`. A keyless reference to a map resolves to an empty string with a warning. The add-parameter wizard can build named values too, via a new value-shape step (plain / display labels / named outputs) chosen before the values are entered. Plain/labelled and named values can't be mixed in one parameter, since a keyless reference has no meaning for a named entry. (#10)
 - Added a `joinSeparator` option to customize the string used to join multiple selected values when a parameter is substituted into a task (only relevant with `canPickMany`). It defaults to a single space, so existing behavior is unchanged, and backslash escapes (`\n`, `\t`, `\r`, `\\`) are interpreted. It can be set via the add-parameter wizard's advanced options or by editing the `args` object directly.
+- Documented that a substituted parameter is passed as a single argument (a value with spaces is not split), with the shell-command / `options.env` workarounds.
 
 ## [1.7.0]
 

@@ -28,6 +28,12 @@ export class Param {
     // set when the retrieval command couldn't be registered (duplicate id, owned by
     // another file's param). The owning JsonFile then drops this param.
     registrationFailed = false;
+    // dedupe the "keyless access to a named-value map" warning so a repeatedly-run
+    // task doesn't spam it (reset on the param rebuild that follows a config change)
+    private keylessMapWarned = false;
+    // the display strings of the current selection (what the status bar shows),
+    // surfaced via getSelectionText for the tree/quick-pick without re-resolving
+    private displayText: string[] = [];
 
     constructor(
         public readonly id: string,
@@ -67,6 +73,17 @@ export class Param {
             // command-backed one must not run its shell command even once
             return;
         }
+        // register a retrieval command per named-output key, so one selection can feed
+        // several `${command:…get.<id>.<key>}` substitutions. Like the primary command,
+        // these rely on the old Param being disposed before the rebuild on each save
+        // (JsonFile.disposeParams runs first); a clash only drops that one key.
+        this.valuesDelegate.getSecondaryKeys().forEach((key) => {
+            try {
+                this.disposables.push(commands.registerCommand(`${this.command}.${key}`, () => this.onGetSecondary(key)));
+            } catch (err) {
+                console.error(err);
+            }
+        });
         // resolve values only after the retrieval command is registered
         this.update();
         this.statusBarItem.show();
@@ -137,6 +154,8 @@ export class Param {
      * showName/showSelection settings and greying out an empty/blank selection.
      */
     setText(selection: string[]) {
+        // remember the display strings for getSelectionText (tree/quick-pick labels)
+        this.displayText = selection;
         const showName = this.opts.showName ?? this.config.showNames;
         const showSelection = this.opts.showSelection ?? this.config.showSelections;
         // "no selection" = an empty array or only blank values. A shell command can
@@ -170,14 +189,74 @@ export class Param {
         return this.config.workspaceState.update(this.command, undefined);
     }
 
+    // the current selection's display label(s), for tree/quick-pick descriptions —
+    // unlike onGet it never warns or resolves a map, and stays synchronous
+    getSelectionText(): string {
+        return this.displayText.join(' ');
+    }
+
     /**
      * Resolve the `${command:…get.<id>}` substitution: the selected value(s) joined
      * with `joinSeparator` (a space by default; escapes interpreted via interpretEscapes).
+     * A map (named-output) entry has no single keyless value, so it warns and is
+     * skipped — the user must reference one of its keys via `…get.<id>.<key>`.
      */
-    onGet() {
+    onGet(): string | Promise<string> {
         const selection = this.loadSelectedValues() ?? [];
         const separator = this.opts.joinSeparator === undefined ? ' ' : interpretEscapes(this.opts.joinSeparator);
-        return selection.join(separator);
+        // fast path: without named-output keys, no entry can be a map, so the stored
+        // strings are the values verbatim (the common case, kept synchronous)
+        if (this.valuesDelegate.getSecondaryKeys().length === 0) {
+            return selection.join(separator);
+        }
+        return this.onGetResolved(selection, separator);
+    }
+
+    // resolve a selection that may contain map entries: skip each map entry (warning
+    // once) and keep the plain values — including a deliberate empty string, unlike a
+    // blanket filter, so a string entry's value is never silently dropped
+    private async onGetResolved(selection: string[], separator: string): Promise<string> {
+        const values = (await this.getValues()) ?? [];
+        const parts: string[] = [];
+        for (const selected of selection) {
+            const match = values.find((value) => value.value === selected);
+            if (match?.secondaryValues) {
+                this.warnKeylessMapAccess();
+                continue;
+            }
+            // a string entry, or an unknown stored id (kept as-is, as before)
+            parts.push(match?.value ?? selected);
+        }
+        return parts.join(separator);
+    }
+
+    /**
+     * Resolve the `${command:…get.<id>.<key>}` substitution: the selected value(s)'
+     * named output for `key`, joined like onGet. A selection without that key
+     * contributes nothing, so an unset key yields an empty string.
+     */
+    async onGetSecondary(key: string): Promise<string> {
+        const selection = this.loadSelectedValues() ?? [];
+        if (selection.length === 0) {
+            return '';
+        }
+        const separator = this.opts.joinSeparator === undefined ? ' ' : interpretEscapes(this.opts.joinSeparator);
+        // unforced: array values are static, so this never re-runs a shell command
+        const values = (await this.getValues()) ?? [];
+        return selection
+            .map((selected) => values.find((value) => value.value === selected)?.secondaryValues?.[key] ?? '')
+            .filter((secondary) => secondary !== '')
+            .join(separator);
+    }
+
+    // warn once that a named-value (map) selection was read without a key
+    private warnKeylessMapAccess() {
+        if (this.keylessMapWarned) {
+            return;
+        }
+        this.keylessMapWarned = true;
+        const keys = this.valuesDelegate.getSecondaryKeys().join(', ');
+        window.showWarningMessage(`Parameter '${this.id}' has named values — reference one with ` + `\${command:${this.command}.<key>} (keys: ${keys}).`);
     }
 
     loadSelectedValues() {

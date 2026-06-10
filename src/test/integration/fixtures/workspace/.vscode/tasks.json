@@ -23,6 +23,28 @@
             "type": "command",
             "command": "statusBarParam.get.shellfruit",
             "args": { "shellCmd": "echo cat; echo dog" }
+        },
+        {
+            "id": "compiler",
+            "type": "command",
+            "command": "statusBarParam.get.compiler",
+            "args": {
+                "values": [
+                    { "displayValue": "gcc", "value": { "cc": "gcc", "cxx": "g++" } },
+                    { "displayValue": "clang", "value": { "cc": "clang", "cxx": "clang++" } }
+                ]
+            }
+        },
+        {
+            "id": "multi",
+            "type": "command",
+            "command": "statusBarParam.get.multi",
+            "args": {
+                "values": ["a", "b", "c"],
+                "canPickMany": true,
+                "initialSelection": ["a", "b"],
+                "joinSeparator": ","
+            }
         }
     ]
 }
