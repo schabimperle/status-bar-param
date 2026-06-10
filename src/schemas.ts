@@ -8,6 +8,7 @@ export interface Options {
     showName?: boolean;
     showSelection?: boolean;
     initialSelection?: string | string[];
+    joinSeparator?: string;
 }
 
 export interface DisplayableValue {

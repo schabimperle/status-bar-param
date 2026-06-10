@@ -1,6 +1,7 @@
 import { QuickPickItem, window } from 'vscode';
 import { ArrayOptions, ArrayValue, CommandOptions, Options } from './schemas';
 import { ArrayValuesDelegate, CommandValuesDelegate } from './valuesDelegate';
+import { interpretEscapes } from './escapes';
 import type { JsonFile } from './jsonFile';
 
 /**
@@ -200,7 +201,7 @@ async function promptCommandArgs(ctx: WizardContext): Promise<ParamArgs | undefi
 }
 
 /** The advanced option keys, each phrased in the menu as the action it performs. */
-type AdvancedKey = 'displayValue' | 'canPickMany' | 'initialSelection' | 'showName' | 'showSelection' | 'cwd' | 'separator' | 'sampleTask';
+type AdvancedKey = 'displayValue' | 'canPickMany' | 'initialSelection' | 'showName' | 'showSelection' | 'joinSeparator' | 'cwd' | 'separator' | 'sampleTask';
 
 /**
  * One optional multi-select of advanced options applicable to the type. Returns the
@@ -226,6 +227,11 @@ async function promptAdvancedOptions(type: ParamType, ctx: WizardContext): Promi
             key: 'showSelection',
             label: ctx.showSelectionsDefault ? 'Hide the selected value in the status bar' : 'Show the selected value in the status bar',
             description: 'Whether the selected value is shown in the status bar.',
+        },
+        {
+            key: 'joinSeparator',
+            label: 'Set a custom value separator',
+            description: 'The string used to join multiple selected values when substituted into a task (defaults to a space).',
         },
     );
     if (type === 'command') {
@@ -274,6 +280,19 @@ async function collectOptions(
         // an empty pick/entry means "no initial selection" — only set when present
         if (initial !== '' && !(Array.isArray(initial) && initial.length === 0)) {
             opts.initialSelection = initial;
+        }
+    }
+    if (advanced.includes('joinSeparator')) {
+        const joinSeparator = await promptOptionalInput(
+            'Enter the separator used to join multiple selected values (use \\n for newline, \\t for tab). Defaults to a space.',
+        );
+        if (joinSeparator === undefined) {
+            return undefined; // aborted
+        }
+        // store the literal the user typed (escapes are interpreted in onGet, so a
+        // hand-edited "\n" behaves the same); empty keeps the default space.
+        if (joinSeparator !== '') {
+            opts.joinSeparator = joinSeparator;
         }
     }
     return opts;
@@ -342,10 +361,4 @@ async function promptCommandInitialSelection(canPickMany: boolean): Promise<stri
 /** A free-text input where empty means "skip" (not abort); Escape aborts (undefined). */
 async function promptOptionalInput(prompt: string): Promise<string | undefined> {
     return window.showInputBox({ prompt, ignoreFocusOut: true });
-}
-
-/** Turn the common backslash escapes a user types (\n \t \r \\) into real characters. */
-function interpretEscapes(value: string): string {
-    const map: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\' };
-    return value.replace(/\\([ntr\\])/g, (_match, ch: string) => map[ch]);
 }

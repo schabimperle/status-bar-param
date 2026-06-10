@@ -167,6 +167,30 @@ describe('promptParamArgs (array)', () => {
         showQuickPick.mockResolvedValueOnce(undefined);
         await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
     });
+
+    it('collects a custom joinSeparator (stored as the literal the user typed)', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('b').mockResolvedValueOnce('');
+        advanced('canPickMany', 'joinSeparator');
+        showInputBox.mockResolvedValueOnce('\\n'); // user typed backslash-n; stored literally
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({
+            args: { values: ['a', 'b'], canPickMany: true, joinSeparator: '\\n' },
+            addSampleTask: false,
+        });
+    });
+
+    it('skips an empty joinSeparator entry, keeping the default', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('joinSeparator');
+        showInputBox.mockResolvedValueOnce(''); // empty → keep default
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toEqual({ args: ['a'], addSampleTask: false });
+    });
+
+    it('aborts when the joinSeparator entry is escaped', async () => {
+        showInputBox.mockResolvedValueOnce('a').mockResolvedValueOnce('');
+        advanced('joinSeparator');
+        showInputBox.mockResolvedValueOnce(undefined); // escaped
+        await expect(prompts.promptParamArgs('array', CTX)).resolves.toBeUndefined();
+    });
 });
 
 describe('promptParamArgs (command)', () => {
@@ -197,6 +221,16 @@ describe('promptParamArgs (command)', () => {
         showInputBox.mockResolvedValueOnce('\\n'); // user typed backslash-n
         const result = (await prompts.promptParamArgs('command', CTX)) as { args: CommandOptions };
         expect(result.args.separator).toBe('\n'); // a real newline, not the 2-char string
+    });
+
+    it('collects a joinSeparator on a command param too', async () => {
+        showInputBox.mockResolvedValueOnce('ls');
+        advanced('canPickMany', 'joinSeparator');
+        showInputBox.mockResolvedValueOnce(', '); // joinSeparator entered in collectOptions
+        await expect(prompts.promptParamArgs('command', CTX)).resolves.toEqual({
+            args: { shellCmd: 'ls', canPickMany: true, joinSeparator: ', ' } as CommandOptions,
+            addSampleTask: false,
+        });
     });
 
     it('skips an empty optional command input without aborting', async () => {

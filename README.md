@@ -53,6 +53,10 @@ trigger IntelliSense):
 - **`initialSelection`** — the value(s) applied the first time the parameter
   loads. Without it, a single-select parameter defaults to the first value and a
   multi-select to none.
+- **`joinSeparator`** — the string used to join multiple selected values when the
+  parameter is substituted into a task (only relevant with `canPickMany`).
+  Defaults to a single space; backslash escapes (`\n`, `\t`, `\r`, `\\`) are
+  interpreted.
 - **Display labels** — write a value as
   `{ "value": "raw", "displayValue": "Label" }` to show a friendly label in the
   bar and picker while storing and returning the raw value.

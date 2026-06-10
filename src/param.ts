@@ -6,6 +6,7 @@ import { JsonFile } from './jsonFile';
 import { ValuesDelegate } from './valuesDelegate';
 import { DisplayableValue, Options } from './schemas';
 import { ExtensionConfig } from './config';
+import { interpretEscapes } from './escapes';
 
 /**
  * A single status-bar parameter: owns its `StatusBarItem`, registers the
@@ -169,10 +170,14 @@ export class Param {
         return this.config.workspaceState.update(this.command, undefined);
     }
 
-    /** Resolve the `${command:…get.<id>}` substitution: the selected value(s), space-joined. */
+    /**
+     * Resolve the `${command:…get.<id>}` substitution: the selected value(s) joined
+     * with `joinSeparator` (a space by default; escapes interpreted via interpretEscapes).
+     */
     onGet() {
         const selection = this.loadSelectedValues() ?? [];
-        return selection.join(' ');
+        const separator = this.opts.joinSeparator === undefined ? ' ' : interpretEscapes(this.opts.joinSeparator);
+        return selection.join(separator);
     }
 
     loadSelectedValues() {

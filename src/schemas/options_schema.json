@@ -31,6 +31,11 @@
             ],
             "default": "",
             "description": "Set an initial selected value for the parameter. It must be one (or more in case of canPickMany=true) of the values to pick from. It can be a string or an array of strings."
+        },
+        "joinSeparator": {
+            "type": "string",
+            "default": " ",
+            "description": "The separator used to join multiple selected values when the parameter is substituted into a task (only relevant with canPickMany=true). Backslash escapes (\\n, \\t, \\r, \\\\) are interpreted. Defaults to a single space."
         }
     }
 }

@@ -23,6 +23,9 @@ describe('schema validation', () => {
         it('accepts the options flags alongside values', () => {
             expect(validateArrayOptionsInput({ values: ['a'], canPickMany: true, showName: true })).toBe(true);
         });
+        it('accepts a joinSeparator alongside values', () => {
+            expect(validateArrayOptionsInput({ values: ['a', 'b'], canPickMany: true, joinSeparator: ',' })).toBe(true);
+        });
         it('rejects a value object missing the required value', () => {
             expect(validateArrayOptionsInput({ values: [{ displayValue: 'Label' }] })).toBe(false);
         });
@@ -37,6 +40,9 @@ describe('schema validation', () => {
         });
         it('accepts a bare shellCmd', () => {
             expect(validateCommandOptionsInput({ shellCmd: 'ls' })).toBe(true);
+        });
+        it('accepts a joinSeparator (an output separator distinct from the input separator)', () => {
+            expect(validateCommandOptionsInput({ shellCmd: 'ls', separator: ',', joinSeparator: ', ' })).toBe(true);
         });
         it('requires shellCmd', () => {
             expect(validateCommandOptionsInput({ cwd: '/tmp' })).toBe(false);

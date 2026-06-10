@@ -2,6 +2,10 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [Unreleased]
+
+- Added a `joinSeparator` option to customize the string used to join multiple selected values when a parameter is substituted into a task (only relevant with `canPickMany`). It defaults to a single space, so existing behavior is unchanged, and backslash escapes (`\n`, `\t`, `\r`, `\\`) are interpreted. It can be set via the add-parameter wizard's advanced options or by editing the `args` object directly.
+
 ## [1.7.0]
 
 - Added reliable support for parameters in the global user `tasks.json`, including in remote windows. Adding or removing a user-tasks parameter no longer triggers VS Code's "create tasks.json from template" picker.

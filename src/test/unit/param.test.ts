@@ -185,6 +185,27 @@ describe('Param.storeSelectedValues / onGet', () => {
         store.delete(COMMAND);
         expect(param.onGet()).toBe('');
     });
+
+    it('onGet joins with a custom joinSeparator', async () => {
+        const { param } = setup({ opts: { canPickMany: true, joinSeparator: ',' } });
+        await flush();
+        param.storeSelectedValues([A, B]);
+        expect(param.onGet()).toBe('a,b');
+    });
+
+    it('onGet interprets backslash escapes in joinSeparator (\\n -> newline)', async () => {
+        const { param } = setup({ opts: { canPickMany: true, joinSeparator: '\\n' } });
+        await flush();
+        param.storeSelectedValues([A, B]);
+        expect(param.onGet()).toBe('a\nb');
+    });
+
+    it('onGet falls back to a single space when joinSeparator is unset', async () => {
+        const { param } = setup({ opts: { canPickMany: true } });
+        await flush();
+        param.storeSelectedValues([A, B]);
+        expect(param.onGet()).toBe('a b');
+    });
 });
 
 describe('Param.setText rendering', () => {
