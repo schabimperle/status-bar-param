@@ -46,6 +46,8 @@ describe('onAddParam', () => {
         } as unknown as JsonFile & { addParam: jest.Mock };
 
         (prompts.promptParamType as jest.Mock).mockResolvedValue('array');
+        // the creation mode is picked right after the type; default to the guided flow
+        (prompts.promptCreationMode as jest.Mock).mockResolvedValue('guided');
         // the value shape is gathered after the type, before the id
         (prompts.promptValueShape as jest.Mock).mockResolvedValue('plain');
         (prompts.promptParamId as jest.Mock).mockResolvedValue('myId');
@@ -114,8 +116,76 @@ describe('onAddParam', () => {
         expect(jsonFile.addParam).not.toHaveBeenCalled();
     });
 
+    describe('example mode', () => {
+        beforeEach(() => {
+            (prompts.promptCreationMode as jest.Mock).mockResolvedValue('example');
+            // the sample task is a single yes/no in example mode; default to yes
+            (prompts.promptExampleSampleTask as jest.Mock).mockResolvedValue(true);
+        });
+
+        it('seeds an example of the chosen shape (with the entered id) and skips the value/advanced prompts', async () => {
+            (prompts.promptValueShape as jest.Mock).mockResolvedValue('named');
+            const args = { values: [{ displayValue: 'GCC', value: { CC: 'gcc' } }] };
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(args);
+
+            await commands.onAddParam(config, [], jsonFile);
+
+            // the example is built for the chosen type + shape
+            expect(prompts.buildExampleArgs).toHaveBeenCalledWith('array', 'named');
+            // example mode never runs the guided value/advanced gathering
+            expect(prompts.promptParamArgs).not.toHaveBeenCalled();
+            // the chosen sample task plus a how-to comment (pointing at the named per-key
+            // commands, using the user's own id) go in alongside the example
+            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', args, true, expect.stringContaining('statusBarParam.get.myId.<key>'));
+        });
+
+        it('omits the sample task when the user declines it', async () => {
+            (prompts.promptExampleSampleTask as jest.Mock).mockResolvedValue(false);
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+
+            await commands.onAddParam(config, [], jsonFile);
+
+            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['debug', 'release'], false, expect.anything());
+        });
+
+        it('aborts (without writing) when the sample-task prompt is cancelled', async () => {
+            (prompts.promptExampleSampleTask as jest.Mock).mockResolvedValue(undefined);
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+
+            await commands.onAddParam(config, [], jsonFile);
+
+            expect(jsonFile.addParam).not.toHaveBeenCalled();
+        });
+
+        it('aborts (without writing) when a named example output clashes with an existing command id', async () => {
+            (prompts.promptValueShape as jest.Mock).mockResolvedValue('named');
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue({ values: [{ displayValue: 'GCC', value: { CC: 'gcc' } }] });
+            // an existing param whose primary command is `…get.myId.CC` — the fixed example
+            // key CC would register the same command id, which the guided flow would reject
+            const clashing = { id: 'myId.CC', command: 'statusBarParam.get.myId.CC', valuesDelegate: { getSecondaryKeys: () => [] } } as unknown as Param;
+            const fileWithParam = { params: [clashing] } as unknown as JsonFile;
+
+            await commands.onAddParam(config, [fileWithParam], jsonFile);
+
+            expect(jsonFile.addParam).not.toHaveBeenCalled();
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("'CC' output clashes"));
+        });
+
+        it('comments a non-named example with its ${input:<id>} reference and adds no task for launch.json', async () => {
+            (jsonFile as unknown as { isLaunchJson: boolean }).isLaunchJson = true;
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+
+            await commands.onAddParam(config, [], jsonFile);
+
+            // launch.json gets no task, so its sample-task prompt is never shown
+            expect(prompts.promptExampleSampleTask).not.toHaveBeenCalled();
+            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['debug', 'release'], false, expect.stringContaining('${input:myId}'));
+        });
+    });
+
     it.each([
         ['type', () => (prompts.promptParamType as jest.Mock).mockResolvedValue(undefined)],
+        ['creation mode', () => (prompts.promptCreationMode as jest.Mock).mockResolvedValue(undefined)],
         ['value shape', () => (prompts.promptValueShape as jest.Mock).mockResolvedValue(undefined)],
         ['id', () => (prompts.promptParamId as jest.Mock).mockResolvedValue(undefined)],
         ['args', () => (prompts.promptParamArgs as jest.Mock).mockResolvedValue(undefined)],

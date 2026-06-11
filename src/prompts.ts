@@ -561,3 +561,80 @@ async function promptCommandInitialSelection(canPickMany: boolean): Promise<stri
 async function promptOptionalInput(prompt: string): Promise<string | undefined> {
     return window.showInputBox({ prompt, ignoreFocusOut: true });
 }
+
+/** How the values/options are provided: prompted step-by-step, or seeded from an example. */
+export type CreationMode = 'guided' | 'example';
+
+/**
+ * Right after the type pick, fork the flow: be led through the value/option prompts, or
+ * drop a complete, working example into the file to edit in JSON. The example path still
+ * reuses the shared shape + id steps that follow — it only replaces the value/advanced
+ * prompts — so the inserted example carries the user's own id and is the chosen shape.
+ * Returns the picked mode, or undefined when the user escapes.
+ */
+export async function promptCreationMode(): Promise<CreationMode | undefined> {
+    const items: (QuickPickItem & { mode: CreationMode })[] = [
+        { mode: 'guided', label: 'Guide me through it', description: 'Answer prompts for the values and options.' },
+        {
+            mode: 'example',
+            label: 'Insert an example to edit',
+            description: 'Drop a complete, working parameter into the file to tweak directly in JSON.',
+        },
+    ];
+    const picked = await window.showQuickPick(items, {
+        placeHolder: 'How do you want to define this parameter?',
+        ignoreFocusOut: true,
+    });
+    return picked?.mode;
+}
+
+/**
+ * Example mode's single yes/no for the sample task. The guided flow offers this inside
+ * its advanced multi-select (opt-in, default off); the example path skips that step, so
+ * ask once here — defaulting to yes, since a runnable task that uses the parameter is
+ * part of a complete, working demo. Only non-launch files reach this (launch.json gets
+ * no task). Returns the choice, or undefined when the user escapes.
+ */
+export async function promptExampleSampleTask(): Promise<boolean | undefined> {
+    const items: (QuickPickItem & { add: boolean })[] = [
+        { add: true, label: 'Yes', description: 'Also add a runnable task that uses the parameter.' },
+        { add: false, label: 'No', description: 'Insert only the parameter.' },
+    ];
+    const picked = await window.showQuickPick(items, {
+        placeHolder: 'Also add a sample task that uses the parameter?',
+        ignoreFocusOut: true,
+    });
+    return picked?.add;
+}
+
+/**
+ * A fully-populated, schema-valid `args` for the chosen type/shape, used by the
+ * example path. A command example ignores `shape` (command output is always plain
+ * strings); the named example is the headline case, since its value×key matrix is the
+ * shape the guided flow handles least comfortably.
+ */
+export function buildExampleArgs(type: ParamType, shape: ValueShape = 'plain'): ArrayValue[] | ArrayOptions | CommandOptions {
+    if (type === 'command') {
+        // a repo-/tool-independent command so the seeded example produces values (and
+        // doesn't error) anywhere — one value per output line; edit it to taste
+        return { shellCmd: 'echo debug && echo release' };
+    }
+    switch (shape) {
+        case 'plain':
+            return ['debug', 'release'];
+        case 'labelled':
+            return {
+                values: [
+                    { value: 'debug', displayValue: 'Debug' },
+                    { value: 'release', displayValue: 'Release' },
+                ],
+            };
+        case 'named':
+            return {
+                values: [
+                    { displayValue: 'GCC', value: { CC: 'gcc', CXX: 'g++' } },
+                    { displayValue: 'Clang', value: { CC: 'clang', CXX: 'clang++' } },
+                ],
+            };
+    }
+}

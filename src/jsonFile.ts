@@ -436,7 +436,10 @@ export class JsonFile implements Disposable {
 
     // write a new parameter (and optionally a sample task) into this json file.
     // the interactive gathering of id/args/addSampleTask lives in commands.ts.
-    async addParam(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean) {
+    // headerComment (the example flow's how-to note) is written above the input for a
+    // document/text file; the config-based user tasks path can't embed it, so it's
+    // surfaced as a message there instead (see addParamToUserTasks).
+    async addParam(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean, headerComment?: string) {
         try {
             if (this.useDocumentIO) {
                 // The user (global) tasks.json has no openable uri; the only way to open
@@ -448,12 +451,12 @@ export class JsonFile implements Disposable {
                 // make sure the file is never left task-less. The re-parse on the
                 // config change shows the new param; no reveal, since opening the file
                 // is exactly what we are avoiding.
-                await this.addParamToUserTasks(id, args, addSampleTask);
+                await this.addParamToUserTasks(id, args, addSampleTask, headerComment);
                 return;
             }
             // set before mutating so the re-parse triggered by the write reveals it
             this.paramIdToEditOnCreate = id;
-            await this.mutate((current) => this.withNewParam(current, id, args, addSampleTask));
+            await this.mutate((current) => this.withNewParam(current, id, args, addSampleTask, headerComment));
         } catch (err) {
             console.error(err);
             this.paramIdToEditOnCreate = '';
@@ -465,7 +468,7 @@ export class JsonFile implements Disposable {
     // appending to the inputs/tasks read from the Global scope (VS Code fills in the
     // file's `version` itself). Writing config rather than editing the opened document
     // avoids the template picker; the trade-off is no preserved formatting / tip comment.
-    private async addParamToUserTasks(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean) {
+    private async addParamToUserTasks(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean, headerComment?: string) {
         const tasksConfig = workspace.getConfiguration('tasks');
         const tasks = [...(tasksConfig.inspect<unknown[]>('tasks')?.globalValue ?? [])];
         // VS Code's task tooling treats a task-less tasks.json as "unconfigured": opening
@@ -491,6 +494,16 @@ export class JsonFile implements Disposable {
                     `otherwise opening the file prompts to create one from a template.`,
             );
         }
+        // a config write can't carry the example's how-to comment (no document to write
+        // it into); surface that guidance as a message instead of dropping it silently.
+        if (headerComment) {
+            window.showInformationMessage(
+                headerComment
+                    .replace(/^\s*\/\/ ?/gm, '')
+                    .replace(/\s+/g, ' ')
+                    .trim(),
+            );
+        }
     }
 
     // remove a parameter's input from the user (global) tasks.json via the `tasks`
@@ -513,7 +526,7 @@ export class JsonFile implements Disposable {
     // the named-output keys defined by these args (first-seen order), or [] for a
     // plain/labelled/command param. Lets buildSampleTask demonstrate the per-key
     // `…get.<id>.<key>` references a named value needs.
-    private static secondaryKeysOf(args: ArrayValue[] | ArrayOptions | CommandOptions): string[] {
+    static secondaryKeysOf(args: ArrayValue[] | ArrayOptions | CommandOptions): string[] {
         const values = Array.isArray(args) ? args : (args as ArrayOptions).values;
         if (!Array.isArray(values)) {
             return [];
@@ -564,7 +577,13 @@ export class JsonFile implements Disposable {
         return { tabSize: 4, insertSpaces: true };
     }
 
-    private withNewParam(fileContent: string, id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean): string {
+    private withNewParam(
+        fileContent: string,
+        id: string,
+        args: ArrayValue[] | ArrayOptions | CommandOptions,
+        addSampleTask: boolean,
+        headerComment?: string,
+    ): string {
         // the parsed object is read-only scaffolding: it answers "does this key
         // already exist?" so we don't overwrite it. All persisted writes go through
         // jsonc.modify/applyEdits on the string below; mutations to rootNode/tasksRoot
@@ -611,10 +630,15 @@ export class JsonFile implements Disposable {
         const inputPath = [...jsoncPaths.inputsPath, tasksRoot.inputs.length];
         const modifications = jsonc.modify(fileContent, inputPath, input, { formattingOptions });
         fileContent = jsonc.applyEdits(fileContent, modifications);
-        // one-time hint, above the only configurable property (`args`), that it can
-        // hold either a value array or an options object (command params, advanced
-        // options) discoverable via JSON IntelliSense
-        if (isFirstInput) {
+        // an explicit header comment (the example command's how-to-edit note) describes
+        // the whole entry, so it goes above the input object and takes precedence over
+        // the generic args tip below — one comment, not two.
+        if (headerComment) {
+            fileContent = this.withCommentAboveNode(fileContent, inputPath, headerComment);
+        } else if (isFirstInput) {
+            // one-time hint, above the only configurable property (`args`), that it can
+            // hold either a value array or an options object (command params, advanced
+            // options) discoverable via JSON IntelliSense
             const comment =
                 "// 'args' can be an array of values, or an object for command params\n" + '// and advanced options — start typing inside it for IntelliSense.';
             fileContent = this.withCommentAboveNode(fileContent, [...inputPath, 'args'], comment);

@@ -210,6 +210,17 @@ describe('JsonFile.addParam', () => {
         expect(secondRaw).not.toContain("// 'args'");
     });
 
+    it('writes a header comment above the input and suppresses the generic args tip', async () => {
+        const file = makeFile('/ws/.vscode/tasks.json');
+        // first param into an empty file: without a header comment it would get the args
+        // tip; the explicit header takes its place and sits above the input object
+        await file.addParam('demo', ['hi'], false, '// edit me');
+        const raw = writtenRaw();
+        expect(raw).toMatch(/\/\/ edit me\n\s*\{/);
+        // the generic args tip must not also appear
+        expect(raw).not.toContain("// 'args'");
+    });
+
     it('does not add a version field to launch.json', async () => {
         const file = makeFile('/ws/.vscode/launch.json');
         await file.addParam('greeting', ['hi'], false);
@@ -688,6 +699,25 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
                 vscode.ConfigurationTarget.Global,
             );
             expect(info).toHaveBeenCalled();
+        } finally {
+            restore();
+            info.mockRestore();
+        }
+    });
+
+    it('surfaces an example header comment as a message, since a config write cannot embed it', async () => {
+        const info = jest.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+        const { update, restore } = mockTasksConfig({ tasks: [{ label: 'existing' }] });
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.addParam('myId', ['a'], false, "// Example parameter — edit the values in 'args', then use the\n// selected value via ${input:myId}.");
+
+            // the input is still written via config (no document edit) ...
+            expect(update).toHaveBeenCalledWith('inputs', expect.anything(), vscode.ConfigurationTarget.Global);
+            expect(applyEdit).not.toHaveBeenCalled();
+            // ... and the guidance is surfaced as a single-line message (// stripped), not dropped
+            expect(info).toHaveBeenCalledWith(expect.stringContaining('${input:myId}'));
+            expect(info).toHaveBeenCalledWith(expect.not.stringContaining('//'));
         } finally {
             restore();
             info.mockRestore();

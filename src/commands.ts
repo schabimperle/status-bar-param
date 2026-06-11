@@ -3,6 +3,7 @@ import * as jsonc from 'jsonc-parser';
 import { JsonFile } from './jsonFile';
 import { Param } from './param';
 import { CommandValuesDelegate } from './valuesDelegate';
+import { ArrayOptions, ArrayValue, CommandOptions } from './schemas';
 import { Strings } from './strings';
 import { ExtensionConfig } from './config';
 import * as prompts from './prompts';
@@ -43,9 +44,17 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     if (!type) {
         return;
     }
+    // right after the type, fork: be led through the value/option prompts, or seed a
+    // complete example to edit in JSON. Both paths share the shape + id steps below; the
+    // example path only replaces the value/advanced prompts (see the branch before them).
+    const mode = await prompts.promptCreationMode();
+    if (!mode) {
+        return;
+    }
     // for an array, pick the value shape (plain / labelled / named) right after the
     // type — it reads as a refinement of "Array" and decides what the value prompts
-    // ask, so it belongs before the id rather than buried in the args step
+    // ask (or which example is seeded), so it belongs before the id rather than buried
+    // in the args step
     let shape: prompts.ValueShape | undefined;
     if (type === 'array') {
         shape = await prompts.promptValueShape();
@@ -71,6 +80,37 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     if (!id) {
         return;
     }
+    // example path: seed a complete entry of the chosen shape (with this id) to edit in
+    // JSON, skipping the value/advanced prompts, with a how-to note written above it.
+    if (mode === 'example') {
+        const args = prompts.buildExampleArgs(type, shape);
+        // the named example's output keys are fixed (e.g. CC/CXX), so — unlike the guided
+        // flow, which validates each key as it's typed — guard their `…get.<id>.<key>`
+        // commands against the existing namespace here, before writing a config entry
+        // whose named output would only fail to register afterwards.
+        const command = Strings.getCommandId(id);
+        const clash = JsonFile.secondaryKeysOf(args).find((key) => existingCommandIds.has(`${command}.${key}`));
+        if (clash) {
+            window.showErrorMessage(
+                `Cannot insert the example: its '${clash}' output clashes with the command of another parameter. ` +
+                    `Rename that parameter, or choose a different id for this one.`,
+            );
+            return;
+        }
+        // the sample task is the user's choice here just as in the guided flow, but the
+        // example path skips the advanced step that hosts it, so ask a single yes/no
+        // (default yes). launch.json never gets a task, so don't ask for it.
+        let addSampleTask = false;
+        if (!jsonFile.isLaunchJson) {
+            const choice = await prompts.promptExampleSampleTask();
+            if (choice === undefined) {
+                return;
+            }
+            addSampleTask = choice;
+        }
+        await jsonFile.addParam(id, args, addSampleTask, exampleComment(id, args));
+        return;
+    }
     // the advanced step phrases its status-bar toggles relative to the current
     // global defaults, and folds in the sample-task choice (skipped for launch.json)
     const result = await prompts.promptParamArgs(
@@ -89,6 +129,24 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     }
 
     await jsonFile.addParam(id, result.args, result.addSampleTask);
+}
+
+// the how-to-edit/use note written above a seeded example. Shape-aware: a named value
+// has no keyless reference, so it points at the per-key `…get.<id>.<key>` commands; any
+// other shape uses the plain `${input:<id>}` (or cross-file `${command:…}`).
+function exampleComment(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions): string {
+    const command = Strings.getCommandId(id);
+    const keys = JsonFile.secondaryKeysOf(args);
+    if (keys.length > 0) {
+        return (
+            `// Example parameter — edit the values in 'args', then read each named\n` +
+            `// output with \${command:${command}.<key>} (keys: ${keys.join(', ')}).`
+        );
+    }
+    return (
+        `// Example parameter — edit the values in 'args', then use the selected\n` +
+        `// value via \${input:${id}} (or \${command:${command}} from another file).`
+    );
 }
 
 /* ── param commands ── */

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as prompts from '../../prompts';
 import { JsonFile } from '../../jsonFile';
-import { CommandOptions } from '../../schemas';
+import { CommandOptions, validateArrayOptionsInput, validateCommandOptionsInput } from '../../schemas';
 
 const showQuickPick = vscode.window.showQuickPick as jest.Mock;
 const showInputBox = vscode.window.showInputBox as jest.Mock;
@@ -50,6 +50,56 @@ describe('promptValueShape', () => {
     it('returns undefined when cancelled', async () => {
         showQuickPick.mockResolvedValueOnce(undefined);
         await expect(prompts.promptValueShape()).resolves.toBeUndefined();
+    });
+});
+
+describe('promptCreationMode', () => {
+    it('maps the first item to guided and the second to example', async () => {
+        showQuickPick.mockImplementationOnce((items: { mode: string }[]) => Promise.resolve(items[0]));
+        await expect(prompts.promptCreationMode()).resolves.toBe('guided');
+        showQuickPick.mockImplementationOnce((items: { mode: string }[]) => Promise.resolve(items[1]));
+        await expect(prompts.promptCreationMode()).resolves.toBe('example');
+    });
+
+    it('returns undefined when cancelled', async () => {
+        showQuickPick.mockResolvedValueOnce(undefined);
+        await expect(prompts.promptCreationMode()).resolves.toBeUndefined();
+    });
+});
+
+describe('promptExampleSampleTask', () => {
+    it('maps the first item to yes (true) and the second to no (false)', async () => {
+        showQuickPick.mockImplementationOnce((items: { add: boolean }[]) => Promise.resolve(items[0]));
+        await expect(prompts.promptExampleSampleTask()).resolves.toBe(true);
+        showQuickPick.mockImplementationOnce((items: { add: boolean }[]) => Promise.resolve(items[1]));
+        await expect(prompts.promptExampleSampleTask()).resolves.toBe(false);
+    });
+
+    it('returns undefined when cancelled', async () => {
+        showQuickPick.mockResolvedValueOnce(undefined);
+        await expect(prompts.promptExampleSampleTask()).resolves.toBeUndefined();
+    });
+});
+
+describe('buildExampleArgs', () => {
+    it('builds a complete, schema-valid example for every type/shape', () => {
+        const cases: [prompts.ParamType, prompts.ValueShape | undefined][] = [
+            ['array', 'plain'],
+            ['array', 'labelled'],
+            ['array', 'named'],
+            ['command', undefined],
+        ];
+        for (const [type, shape] of cases) {
+            const args = prompts.buildExampleArgs(type, shape);
+            // a command example validates against the command schema; everything else
+            // (bare array or { values, … }) against the array-options schema
+            const valid = !Array.isArray(args) && 'shellCmd' in args ? validateCommandOptionsInput(args) : validateArrayOptionsInput(args);
+            expect(valid).toBe(true);
+        }
+    });
+
+    it('ignores the shape for a command example', () => {
+        expect(prompts.buildExampleArgs('command', 'named')).toEqual(prompts.buildExampleArgs('command', 'plain'));
     });
 });
 
