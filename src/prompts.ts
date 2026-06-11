@@ -619,18 +619,22 @@ export async function promptExampleSampleTask(): Promise<boolean | undefined> {
  */
 export function buildExampleArgs(type: ParamType, shape: ValueShape = 'plain'): ArrayValue[] | ArrayOptions | CommandOptions {
     if (type === 'command') {
-        // a repo-/tool-independent command so the seeded example produces values (and
-        // doesn't error) anywhere — one value per output line; edit it to taste
-        return { shellCmd: 'echo debug && echo release' };
+        // list the filesystem root, one value per line — an always-populated command
+        // to edit to taste, picked per-OS so it runs on the host the extension lives
+        // on (`exec` uses cmd.exe on Windows, /bin/sh elsewhere)
+        return { shellCmd: process.platform === 'win32' ? 'dir /b C:\\' : 'ls /' };
     }
     switch (shape) {
         case 'plain':
             return ['debug', 'release'];
         case 'labelled':
+            // CMake build type: the value is the token the tool expects
+            // (-DCMAKE_BUILD_TYPE=${input:<id>}), the label spells out the cryptic ones
             return {
                 values: [
-                    { value: 'debug', displayValue: 'Debug' },
-                    { value: 'release', displayValue: 'Release' },
+                    { value: 'Debug', displayValue: 'Debug' },
+                    { value: 'RelWithDebInfo', displayValue: 'Release + Debug Info' },
+                    { value: 'MinSizeRel', displayValue: 'Min-Size Release' },
                 ],
             };
         case 'named':
