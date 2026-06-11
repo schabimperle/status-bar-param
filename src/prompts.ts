@@ -75,13 +75,17 @@ export interface ParamArgs {
 
 /** Pick the json file the parameter should be saved to. */
 export async function promptJsonFile(jsonFiles: JsonFile[]): Promise<JsonFile | undefined> {
-    const items = jsonFiles.map((jsonFile) => {
-        return {
-            label: jsonFile.getFileName(),
-            description: jsonFile.getDescription(),
-            jsonFile,
-        };
-    });
+    const items = jsonFiles
+        .map((jsonFile) => {
+            return {
+                label: jsonFile.getFileName(),
+                description: jsonFile.getDescription(),
+                jsonFile,
+            };
+        })
+        // local config files first, then the .code-workspace, then the user tasks.json
+        // last; a stable sort keeps files within a tier in their original order
+        .sort((a, b) => a.jsonFile.displayRank - b.jsonFile.displayRank);
     let placeHolder = 'Select the file where the parameter should be saved.';
     if (jsonFiles.length <= 1) {
         placeHolder += ' Open a workspace or folder to extend this list.';

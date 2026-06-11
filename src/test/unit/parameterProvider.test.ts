@@ -60,10 +60,20 @@ describe('ParameterProvider.getTreeItem', () => {
 
 describe('ParameterProvider.getChildren', () => {
     it('returns only files that have params at the root', () => {
-        const withParams = { hasParams: () => true } as unknown as JsonFile;
-        const empty = { hasParams: () => false } as unknown as JsonFile;
+        const withParams = { hasParams: () => true, displayRank: 0 } as unknown as JsonFile;
+        const empty = { hasParams: () => false, displayRank: 0 } as unknown as JsonFile;
         const provider = new ParameterProvider([withParams, empty], new vscode.EventEmitter());
         expect(provider.getChildren()).toEqual([withParams]);
+    });
+
+    it('orders root files: local configs, then .code-workspace, then user tasks (stably)', () => {
+        const user = { hasParams: () => true, displayRank: 2 } as unknown as JsonFile;
+        const ws = { hasParams: () => true, displayRank: 1 } as unknown as JsonFile;
+        const localA = { hasParams: () => true, displayRank: 0 } as unknown as JsonFile;
+        const localB = { hasParams: () => true, displayRank: 0 } as unknown as JsonFile;
+        // input order scrambled, matching how the extension assembles the list
+        const provider = new ParameterProvider([user, localA, ws, localB], new vscode.EventEmitter());
+        expect(provider.getChildren()).toEqual([localA, localB, ws, user]);
     });
 
     it('returns the params of a given file', () => {

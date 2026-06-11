@@ -160,6 +160,20 @@ export class JsonFile implements Disposable {
         return this.uri.path.endsWith('launch.json');
     }
 
+    // Sort key for the file list (the wizard picker and the tree view): local
+    // workspace config files first, then the .code-workspace, then the user (global)
+    // tasks.json last — the local files are the usual edit target; the global one is
+    // the rare, "applies everywhere" outlier, so it reads best at the bottom.
+    get displayRank(): number {
+        if (this.isUserTasks) {
+            return 2;
+        }
+        if (this.isCodeWorkspace) {
+            return 1;
+        }
+        return 0;
+    }
+
     // read the file's text, or undefined if it doesn't exist (file-scheme files only)
     async readText(): Promise<string | undefined> {
         try {

@@ -52,8 +52,10 @@ export class ParameterProvider implements TreeDataProvider<JsonFile | Param> {
 
     getChildren(element?: JsonFile) {
         if (!element) {
-            // only show files that have params
-            return this.jsonFiles.filter((jsonFile) => jsonFile.hasParams());
+            // only show files that have params, ordered like the wizard picker: local
+            // config files first, then the .code-workspace, then the user tasks.json last
+            // (stable within a tier). filter() returns a fresh array, so the sort is safe.
+            return this.jsonFiles.filter((jsonFile) => jsonFile.hasParams()).sort((a, b) => a.displayRank - b.displayRank);
         }
         return element.params;
     }

@@ -126,6 +126,35 @@ describe('JsonFile.detectFormatting', () => {
     });
 });
 
+describe('JsonFile.displayRank (file list ordering)', () => {
+    const folder = { uri: vscode.Uri.file('/ws'), name: 'ws', index: 0 } as vscode.WorkspaceFolder;
+    const insideFile = (relativePath: string) => JsonFile.createFromPathInsideWorkspace(1, folder, relativePath, fakeConfig(), new vscode.EventEmitter());
+
+    it('ranks workspace config files (tasks.json / launch.json) first', () => {
+        // a config file under a workspace folder has a workspaceFolder, so it is neither
+        // the global tasks.json nor the .code-workspace — the common, first-listed case
+        expect(insideFile('.vscode/tasks.json').displayRank).toBe(0);
+        expect(insideFile('.vscode/launch.json').displayRank).toBe(0);
+    });
+
+    it('ranks a .code-workspace file after the local config files', () => {
+        expect(makeFile('/ws/team.code-workspace').displayRank).toBe(1);
+    });
+
+    it('ranks the user (global) tasks.json last — both the local and the remote form', () => {
+        // local: a tasks.json with no workspace folder
+        expect(makeFile('/home/me/.config/Code/User/tasks.json').displayRank).toBe(2);
+        // remote: the vscode-userdata placeholder
+        const remote = JsonFile.createFromPathOutsideWorkspace(
+            1,
+            vscode.Uri.from({ scheme: 'vscode-userdata', path: '/tasks.json' }),
+            fakeConfig(),
+            new vscode.EventEmitter(),
+        );
+        expect(remote.displayRank).toBe(2);
+    });
+});
+
 describe('JsonFile.addParam', () => {
     function written(): Record<string, unknown> {
         return jsonc.parse((writeFile.mock.calls.at(-1)![1] as Buffer).toString());

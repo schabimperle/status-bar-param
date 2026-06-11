@@ -7,10 +7,8 @@ const showQuickPick = vscode.window.showQuickPick as jest.Mock;
 const showInputBox = vscode.window.showInputBox as jest.Mock;
 
 describe('promptJsonFile', () => {
-    const files = [
-        { getFileName: () => 'tasks.json', getDescription: () => 'ws' },
-        { getFileName: () => 'launch.json', getDescription: () => 'ws' },
-    ] as unknown as JsonFile[];
+    const fake = (name: string, displayRank = 0) => ({ getFileName: () => name, getDescription: () => 'ws', displayRank }) as unknown as JsonFile;
+    const files = [fake('tasks.json'), fake('launch.json')];
 
     it('returns the picked file', async () => {
         showQuickPick.mockImplementationOnce((items: { jsonFile: JsonFile }[]) => Promise.resolve(items[1]));
@@ -20,6 +18,22 @@ describe('promptJsonFile', () => {
     it('returns undefined when cancelled', async () => {
         showQuickPick.mockResolvedValueOnce(undefined);
         await expect(prompts.promptJsonFile(files)).resolves.toBeUndefined();
+    });
+
+    it('lists local configs first, then the .code-workspace, then the user tasks.json — stably', async () => {
+        const user = fake('tasks.json (user)', 2);
+        const ws = fake('team.code-workspace', 1);
+        const localA = fake('a/.vscode/tasks.json', 0);
+        const localB = fake('b/.vscode/launch.json', 0);
+        let presented: { jsonFile: JsonFile }[] = [];
+        showQuickPick.mockImplementationOnce((items: { jsonFile: JsonFile }[]) => {
+            presented = items;
+            return Promise.resolve(undefined);
+        });
+        // input order scrambled (user first, as the extension currently assembles it)
+        await prompts.promptJsonFile([user, localA, ws, localB]);
+        // tiers in order, and the two locals keep their relative input order (stable)
+        expect(presented.map((item) => item.jsonFile)).toEqual([localA, localB, ws, user]);
     });
 });
 
