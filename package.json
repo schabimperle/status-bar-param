@@ -7,10 +7,14 @@
   "license": "MIT",
   "icon": "images/icon.png",
   "keywords": [
-    "parameter",
-    "variables",
-    "input",
     "status bar",
+    "parameter",
+    "tasks.json",
+    "launch.json",
+    "input",
+    "quick pick",
+    "dropdown",
+    "variables",
     "multi-root ready"
   ],
   "repository": {
@@ -21,6 +25,8 @@
     "vscode": "^1.68.0"
   },
   "categories": [
+    "Snippets",
+    "Debuggers",
     "Other"
   ],
   "galleryBanner": {
