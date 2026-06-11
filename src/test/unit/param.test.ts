@@ -49,7 +49,11 @@ function setup(options: SetupOptions = {}) {
         getIcon: jest.fn(() => new vscode.ThemeIcon('array')),
         getSecondaryKeys: jest.fn(() => [...secondaryKeys]),
     } as unknown as ValuesDelegate;
-    const jsonFile = { uri: vscode.Uri.file('/ws/.vscode/tasks.json'), changeEmitter: new vscode.EventEmitter() } as unknown as JsonFile;
+    const jsonFile = {
+        uri: vscode.Uri.file('/ws/.vscode/tasks.json'),
+        changeEmitter: new vscode.EventEmitter(),
+        getFileName: () => 'tasks.json',
+    } as unknown as JsonFile;
     const param = new Param('myId', COMMAND, { ...options.opts }, 1, ['inputs'], jsonFile, delegate, config);
     const item = (vscode.window.createStatusBarItem as jest.Mock).mock.results.at(-1)!.value;
     return { param, item, memento, store, delegate, jsonFile };
@@ -450,12 +454,13 @@ describe('Param.getIcon / reveal / dispose', () => {
         doc.restore();
     });
 
-    it('reveal positions inside the user tasks editor the workbench opens', async () => {
-        // useDocumentIO files have no openable uri: the workbench command opens the
-        // editor, then reveal must still position the cursor at the input by id
+    it('reveal positions inside the user tasks document the workbench opens', async () => {
+        // useDocumentIO files have no openable uri: openUserDataDocument awaits the real
+        // document (rather than racing the async open via window.activeTextEditor, which
+        // would re-show whatever file was already active), then reveal positions the
+        // cursor at the input by id and shows that document — the last show, so it wins
         const text = '{\n  "version": "2.0.0",\n  "inputs": [\n    { "id": "myId", "type": "command", "command": "x", "args": ["a"] }\n  ]\n}';
         const expected = text.indexOf('{ "id"');
-        const exec = jest.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined as never);
         let usedOffset = -1;
         const doc = {
             getText: () => text,
@@ -464,17 +469,29 @@ describe('Param.getIcon / reveal / dispose', () => {
                 return new vscode.Position(0, o);
             },
         } as unknown as vscode.TextDocument;
-        Object.defineProperty(vscode.window, 'activeTextEditor', { value: { document: doc }, configurable: true });
         const showSpy = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
         const { param, jsonFile } = setup();
         (jsonFile as unknown as { useDocumentIO: boolean }).useDocumentIO = true;
+        const openUserData = jest.fn().mockResolvedValue(doc);
+        (jsonFile as unknown as { openUserDataDocument: () => Promise<vscode.TextDocument> }).openUserDataDocument = openUserData;
         await param.reveal();
-        expect(exec).toHaveBeenCalledWith('workbench.action.tasks.openUserTasks');
+        expect(openUserData).toHaveBeenCalled();
         expect(usedOffset).toBe(expected);
-        expect(showSpy).toHaveBeenCalled();
-        exec.mockRestore();
+        expect(showSpy).toHaveBeenCalledWith(doc, { selection: expect.anything() });
         showSpy.mockRestore();
-        Object.defineProperty(vscode.window, 'activeTextEditor', { value: undefined, configurable: true });
+    });
+
+    it('reveal surfaces an error when the user tasks document fails to open', async () => {
+        const { param, jsonFile } = setup();
+        (jsonFile as unknown as { useDocumentIO: boolean }).useDocumentIO = true;
+        (jsonFile as unknown as { openUserDataDocument: () => Promise<vscode.TextDocument> }).openUserDataDocument = jest
+            .fn()
+            .mockRejectedValue(new Error('timed out'));
+        const showSpy = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
+        await param.reveal();
+        expect(showSpy).not.toHaveBeenCalled();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining('timed out'));
+        showSpy.mockRestore();
     });
 
     it('dispose tears down the status bar item', () => {

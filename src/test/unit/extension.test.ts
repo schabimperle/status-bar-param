@@ -56,6 +56,7 @@ describe('activate', () => {
 
         for (const command of [
             Strings.COMMAND_ADD,
+            Strings.COMMAND_ADD_TO_FILE,
             Strings.COMMAND_RESET_SELECTIONS,
             Strings.COMMAND_SELECT,
             Strings.COMMAND_EDIT,

@@ -37,8 +37,15 @@ class StatusBarParam {
                 }
             }),
 
-            // global commands
-            commands.registerCommand(Strings.COMMAND_ADD, (jsonFile?: JsonFile) => onAddParam(this.config, this.jsonFiles, jsonFile)),
+            // global commands. COMMAND_ADD (palette + view title `+`) always prompts
+            // for the target file: since VS Code 2022 a view/title command is handed
+            // the tree's focused node, so accepting an argument here would silently skip
+            // the file prompt whenever a node happened to be selected. The per-file
+            // inline `+` keeps that behavior under its own command (COMMAND_ADD_TO_FILE).
+            commands.registerCommand(Strings.COMMAND_ADD, () => onAddParam(this.config, this.jsonFiles)),
+            commands.registerCommand(Strings.COMMAND_ADD_TO_FILE, (jsonFile?: JsonFile) =>
+                onAddParam(this.config, this.jsonFiles, jsonFile instanceof JsonFile ? jsonFile : undefined),
+            ),
             commands.registerCommand(Strings.COMMAND_RESET_SELECTIONS, () => onReset(this.config, this.jsonFiles)),
 
             // param commands (fall back to a picker when invoked without a param)

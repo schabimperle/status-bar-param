@@ -309,20 +309,29 @@ export class Param {
     // open the json file at this param's definition (for edit and auto-open on create)
     async reveal() {
         let document: TextDocument | undefined;
-        if (this.jsonFile.useDocumentIO) {
-            // the user tasks.json has no directly-openable uri; the workbench opens
-            // it, then we position within the editor it activated
-            await commands.executeCommand('workbench.action.tasks.openUserTasks');
-            document = window.activeTextEditor?.document;
-        } else {
-            document = await workspace.openTextDocument(this.jsonFile.uri);
+        try {
+            if (this.jsonFile.useDocumentIO) {
+                // the user tasks.json has no directly-openable uri; have the workbench
+                // open it and await the *real* document. Reading window.activeTextEditor
+                // right after the command races the async open: the still-active
+                // previous editor gets captured and re-shown below, leaving the user on
+                // the wrong file (a brief flash of tasks.json before it loses focus).
+                document = await this.jsonFile.openUserDataDocument();
+            } else {
+                document = await workspace.openTextDocument(this.jsonFile.uri);
+            }
+        } catch (err) {
+            window.showErrorMessage(`Failed to open ${this.jsonFile.getFileName()}: ${err instanceof Error ? err.message : String(err)}`);
+            return;
         }
         if (!document) {
             return;
         }
         // resolve the offset from the document's *current* text (the file or an
         // unsaved buffer may have changed since this Param was parsed); if the input
-        // can't be located, just show the document without moving the cursor
+        // can't be located, just show the document without moving the cursor.
+        // showTextDocument here is the last open, so it focuses the tasks.json (the
+        // earlier openUserTasks open can't leave another editor active).
         const offset = this.findInputOffset(document.getText());
         if (offset === undefined) {
             await window.showTextDocument(document);

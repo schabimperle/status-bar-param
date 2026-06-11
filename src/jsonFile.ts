@@ -201,7 +201,9 @@ export class JsonFile implements Disposable {
     // Only used for editing an EXISTING user param (delete/reveal): adding a new one
     // writes via the `tasks` config instead, so a missing file never triggers the
     // workbench's "create tasks.json from template" picker (see addParamToUserTasks).
-    private openUserDataDocument(): Promise<TextDocument> {
+    // Public so Param.reveal can await the real document rather than racing the open
+    // by reading window.activeTextEditor right after the command.
+    openUserDataDocument(): Promise<TextDocument> {
         const isUserTasks = (doc: TextDocument) => doc.uri.scheme === 'vscode-userdata' && path.posix.basename(doc.uri.path) === 'tasks.json';
         const open = workspace.textDocuments.find(isUserTasks);
         if (open) {
