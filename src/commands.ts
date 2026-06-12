@@ -44,24 +44,6 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
     if (!type) {
         return;
     }
-    // right after the type, fork: be led through the value/option prompts, or seed a
-    // complete example to edit in JSON. Both paths share the shape + id steps below; the
-    // example path only replaces the value/advanced prompts (see the branch before them).
-    const mode = await prompts.promptCreationMode();
-    if (!mode) {
-        return;
-    }
-    // for an array, pick the value shape (plain / labelled / named) right after the
-    // type — it reads as a refinement of "Array" and decides what the value prompts
-    // ask (or which example is seeded), so it belongs before the id rather than buried
-    // in the args step
-    let shape: prompts.ValueShape | undefined;
-    if (type === 'array') {
-        shape = await prompts.promptValueShape();
-        if (!shape) {
-            return;
-        }
-    }
     // ids share a single global command namespace, so reject existing ones up front.
     // Collect every already-registered command id (each param's primary plus its
     // per-key secondary commands) so the wizard can reject a new id or output key that
@@ -76,8 +58,28 @@ export async function onAddParam(config: ExtensionConfig, jsonFiles: JsonFile[],
             existingCommandIds.add(`${param.command}.${key}`);
         }
     }
+    // name the parameter right after its type — the core identity, asked before the value
+    // details so the flow reads the way you'd say it: "an <type> called <id>, shaped …".
     const id = await prompts.promptParamId(existingIds, existingCommandIds);
     if (!id) {
+        return;
+    }
+    // for an array, pick the value shape (plain / labelled / named) next — it reads as a
+    // refinement of "Array" and decides what the value prompts ask (or which example is
+    // seeded), so it's settled before the content rather than buried in the args step.
+    let shape: prompts.ValueShape | undefined;
+    if (type === 'array') {
+        shape = await prompts.promptValueShape();
+        if (!shape) {
+            return;
+        }
+    }
+    // with the parameter fully described (type, id, shape), fork on HOW to fill it in: be
+    // led through the value/option prompts, or seed a complete example to edit in JSON.
+    // The fork sits here, immediately before the paths diverge — not earlier, where both
+    // branches would still share the id/shape questions.
+    const mode = await prompts.promptCreationMode();
+    if (!mode) {
         return;
     }
     // example path: seed a complete entry of the chosen shape (with this id) to edit in

@@ -29,8 +29,10 @@ const showInputBox = window.showInputBox as jest.Mock;
 // demo GIF — `scripts/record-headless.sh --install full`.
 const GUIDED_ARRAY_QUICKPICKS = [
     'Select the type of the parameter.',
-    'How do you want to define this parameter?',
+    // the id is an input box (not a quick-pick), so it isn't in this list; it is gathered
+    // between the type and the value shape — see the wizard order in commands.ts
     'Choose how to define the parameter values.',
+    'How do you want to define this parameter?',
     'Configure advanced options, or select none to use the defaults.',
 ];
 

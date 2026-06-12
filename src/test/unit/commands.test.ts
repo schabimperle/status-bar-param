@@ -80,13 +80,18 @@ describe('onAddParam', () => {
         );
     });
 
-    it('gathers the value shape after the type and before the id (array only)', async () => {
+    it('orders the array wizard as type → id → shape → creation mode', async () => {
         await commands.onAddParam(config, [], jsonFile);
-        const shapeOrder = (prompts.promptValueShape as jest.Mock).mock.invocationCallOrder[0];
-        const typeOrder = (prompts.promptParamType as jest.Mock).mock.invocationCallOrder[0];
-        const idOrder = (prompts.promptParamId as jest.Mock).mock.invocationCallOrder[0];
-        expect(typeOrder).toBeLessThan(shapeOrder);
-        expect(shapeOrder).toBeLessThan(idOrder);
+        const order = (m: jest.Mock) => m.mock.invocationCallOrder[0];
+        const type = order(prompts.promptParamType as jest.Mock);
+        const id = order(prompts.promptParamId as jest.Mock);
+        const shape = order(prompts.promptValueShape as jest.Mock);
+        const mode = order(prompts.promptCreationMode as jest.Mock);
+        // name the parameter right after its type, then refine the array's value shape,
+        // then fork on how to fill it in — the fork sits immediately before the content
+        expect(type).toBeLessThan(id);
+        expect(id).toBeLessThan(shape);
+        expect(shape).toBeLessThan(mode);
     });
 
     it('does not ask for a value shape for a command param', async () => {
@@ -141,16 +146,16 @@ describe('onAddParam', () => {
 
         it('omits the sample task when the user declines it', async () => {
             (prompts.promptExampleSampleTask as jest.Mock).mockResolvedValue(false);
-            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue({ values: ['debug', 'release'] });
 
             await commands.onAddParam(config, [], jsonFile);
 
-            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['debug', 'release'], false, expect.anything());
+            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', { values: ['debug', 'release'] }, false, expect.anything());
         });
 
         it('aborts (without writing) when the sample-task prompt is cancelled', async () => {
             (prompts.promptExampleSampleTask as jest.Mock).mockResolvedValue(undefined);
-            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue({ values: ['debug', 'release'] });
 
             await commands.onAddParam(config, [], jsonFile);
 
@@ -173,13 +178,13 @@ describe('onAddParam', () => {
 
         it('comments a non-named example with its ${input:<id>} reference and adds no task for launch.json', async () => {
             (jsonFile as unknown as { isLaunchJson: boolean }).isLaunchJson = true;
-            (prompts.buildExampleArgs as jest.Mock).mockReturnValue(['debug', 'release']);
+            (prompts.buildExampleArgs as jest.Mock).mockReturnValue({ values: ['debug', 'release'] });
 
             await commands.onAddParam(config, [], jsonFile);
 
             // launch.json gets no task, so its sample-task prompt is never shown
             expect(prompts.promptExampleSampleTask).not.toHaveBeenCalled();
-            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', ['debug', 'release'], false, expect.stringContaining('${input:myId}'));
+            expect(jsonFile.addParam).toHaveBeenCalledWith('myId', { values: ['debug', 'release'] }, false, expect.stringContaining('${input:myId}'));
         });
     });
 

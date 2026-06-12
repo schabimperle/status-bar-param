@@ -81,20 +81,18 @@ async function flowAdd(page) {
     // 2) pick type -> Array (first)
     await waitForPrompt(page, 'type of the parameter');
     await acceptQuick(page, { read: BEAT.READ });
-    // 2a) creation mode -> "Guide me through it" (first row). New in 1.9.0: right
-    //     after the type the wizard forks between being guided and dropping an
-    //     example to edit in JSON; the demo shows the guided flow, so accept row 1.
-    await waitForPrompt(page, 'want to define');
-    await acceptQuick(page, { read: BEAT.READ });
-    // 2b) value shape -> Plain values (first row). The wizard asks how the values
-    //     are defined (plain / display labels / named outputs) right after the
-    //     creation mode and before the name; the demo param is a plain list.
-    await waitForPrompt(page, 'how to define');
-    await acceptQuick(page, { read: BEAT.READ });
-    // 3) name
+    // 3) name the parameter (right after the type — the wizard's identity-first order)
     await waitForPrompt(page, 'name of the parameter');
     await typeQuick(page, PARAM.name);
-    // 4) values, then empty to finish
+    // 4) value shape -> Plain values (first row). The wizard asks how the values are
+    //    defined (plain / display labels / named outputs) after the name; plain list here.
+    await waitForPrompt(page, 'how to define');
+    await acceptQuick(page, { read: BEAT.READ });
+    // 5) creation mode -> "Guide me through it" (first row). The wizard forks between
+    //    being guided and dropping an example to edit; the demo shows the guided flow.
+    await waitForPrompt(page, 'want to define');
+    await acceptQuick(page, { read: BEAT.READ });
+    // 6) values, then empty to finish
     for (let i = 0; i < PARAM.values.length; i++) {
         await waitForPrompt(page, 'parameter value');
         await typeQuick(page, PARAM.values[i]);

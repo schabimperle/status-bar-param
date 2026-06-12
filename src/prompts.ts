@@ -6,15 +6,16 @@ import { Strings } from './strings';
 import type { JsonFile } from './jsonFile';
 
 /**
- * Interactive prompts for creating a parameter. The core flow (target file, type,
- * id, values/command) is short; everything optional (multi-select, initial
- * selection, status-bar display, cwd/separator, and adding a sample task) is offered
- * via a single multi-select whose items are phrased so an unchecked box always means
- * "keep the default" — selecting none keeps the minimal defaults. The shape of an
- * array's values (plain, labelled, or named outputs) is its own dedicated step,
- * offered right after the type pick (before the id) so it reads as a refinement of
- * "Array" and the user always knows what they are typing — it can't be a checkbox
- * answered after the values are already entered.
+ * Interactive prompts for creating a parameter. The flow describes the parameter
+ * first (target file, type, id, then — for an array — the value shape), then forks
+ * on how to fill it in (guided prompts vs. a seeded example), then gathers the
+ * content; everything optional (multi-select, initial selection, status-bar display,
+ * cwd/separator, and adding a sample task) is offered via a single multi-select whose
+ * items are phrased so an unchecked box always means "keep the default" — selecting
+ * none keeps the minimal defaults. The shape of an array's values (plain, labelled,
+ * or named outputs) is its own dedicated step, offered after the id so it reads as a
+ * refinement of "Array" and the user always knows what they are typing — it can't be
+ * a checkbox answered after the values are already entered.
  * Anything not surfaced here stays discoverable through JSON IntelliSense (a tip
  * comment is written next to the new parameter). Each prompt returns the gathered
  * data, or undefined when the user aborts (Escape).
@@ -157,8 +158,8 @@ export async function promptParamArgs(
     id?: string,
     existingCommandIds: Set<string> = new Set(),
 ): Promise<ParamArgs | undefined> {
-    // the value shape is gathered by the caller (right after the type pick, before the
-    // id); only array params have one — command output is always plain strings. id and
+    // the value shape is gathered by the caller (after the id, before this content step);
+    // only array params have one — command output is always plain strings. id and
     // existingCommandIds flow on so the named shape can preflight its output-key commands.
     return type === 'array' ? promptArrayArgs(ctx, shape ?? 'plain', id, existingCommandIds) : promptCommandArgs(ctx);
 }
@@ -184,8 +185,8 @@ async function promptArrayValues(): Promise<string[] | undefined> {
 
 /**
  * Array flow for the already-chosen value `shape`: values (in that shape) → optional
- * advanced options → minimal args shape. The shape was picked right after the type
- * (before the id), so the user enters values already knowing whether they are typing
+ * advanced options → minimal args shape. The shape was picked earlier (after the id,
+ * before this step), so the user enters values already knowing whether they are typing
  * plain values, value+label pairs, or named outputs — never discovering after the
  * fact that what they typed meant something else.
  */
@@ -219,9 +220,9 @@ async function promptArrayArgs(
 export type ValueShape = 'plain' | 'labelled' | 'named';
 
 /**
- * Pick how an array's values are defined. Called right after the type pick and before
- * the id, so it reads as a refinement of "Array" and is decided before any value is
- * entered. "Named outputs" is surfaced here (not as a post-hoc advanced toggle)
+ * Pick how an array's values are defined. Called after the id (and before the
+ * creation-mode fork), so it reads as a refinement of "Array" and is decided before any
+ * value is entered. "Named outputs" is surfaced here (not as a post-hoc advanced toggle)
  * precisely because it changes what the user types: a named value has no single
  * string, so the typed entry is a label plus one value per output key. A param is
  * wholly one shape — plain and named entries can't be mixed, since a keyless
@@ -570,11 +571,11 @@ async function promptOptionalInput(prompt: string): Promise<string | undefined> 
 export type CreationMode = 'guided' | 'example';
 
 /**
- * Right after the type pick, fork the flow: be led through the value/option prompts, or
- * drop a complete, working example into the file to edit in JSON. The example path still
- * reuses the shared shape + id steps that follow — it only replaces the value/advanced
- * prompts — so the inserted example carries the user's own id and is the chosen shape.
- * Returns the picked mode, or undefined when the user escapes.
+ * Once the parameter is described (type, id, and — for an array — shape), fork the flow:
+ * be led through the value/option prompts, or drop a complete, working example into the
+ * file to edit in JSON. The example path reuses the id + shape already gathered — it only
+ * replaces the value/advanced prompts — so the inserted example carries the user's own id
+ * and is the chosen shape. Returns the picked mode, or undefined when the user escapes.
  */
 export async function promptCreationMode(): Promise<CreationMode | undefined> {
     const items: (QuickPickItem & { mode: CreationMode })[] = [
@@ -626,15 +627,23 @@ export function buildExampleArgs(type: ParamType, shape: ValueShape = 'plain'): 
     }
     switch (shape) {
         case 'plain':
-            return ['debug', 'release'];
+            // the object form (not a bare array) so the seeded example is a launchpad:
+            // typing inside the braces, alongside `values`, surfaces IntelliSense for the
+            // options (canPickMany, initialSelection, …) a bare `[…]` gives no hint of —
+            // and it matches the labelled/named examples below. (The guided flow still
+            // emits a minimal bare array; this richer shape is only for editing.)
+            return { values: ['debug', 'release'] };
         case 'labelled':
-            // CMake build type: the value is the token the tool expects
-            // (-DCMAKE_BUILD_TYPE=${input:<id>}), the label spells out the cryptic ones
+            // One pick → a bundle of compiler flags substituted together as a single
+            // ${input:<id>} (e.g. `g++ ${input:<id>} main.cpp` in a shell task, where the
+            // shell splits them into args). Unlike the named-outputs example below, whose
+            // parts are read one by one, the flags travel as one value — the label names
+            // the otherwise-cryptic combination.
             return {
                 values: [
-                    { value: 'Debug', displayValue: 'Debug' },
-                    { value: 'RelWithDebInfo', displayValue: 'Release + Debug Info' },
-                    { value: 'MinSizeRel', displayValue: 'Min-Size Release' },
+                    { value: '-O0 -g', displayValue: 'Debug' },
+                    { value: '-O2 -DNDEBUG', displayValue: 'Release' },
+                    { value: '-O2 -g -pg', displayValue: 'Profiling' },
                 ],
             };
         case 'named':
