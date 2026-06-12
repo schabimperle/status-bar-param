@@ -46,9 +46,9 @@ describe('onAddParam', () => {
         } as unknown as JsonFile & { addParam: jest.Mock };
 
         (prompts.promptParamType as jest.Mock).mockResolvedValue('array');
-        // the creation mode is picked right after the type; default to the guided flow
+        // the creation mode is the last pick before the content fork; default to guided
         (prompts.promptCreationMode as jest.Mock).mockResolvedValue('guided');
-        // the value shape is gathered after the type, before the id
+        // the value shape is gathered after the id, before the creation mode
         (prompts.promptValueShape as jest.Mock).mockResolvedValue('plain');
         (prompts.promptParamId as jest.Mock).mockResolvedValue('myId');
         // promptParamArgs now returns the args plus the sample-task choice

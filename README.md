@@ -14,10 +14,11 @@ another value, and **3.** use it in a task.
 
 1. **Add a parameter** from the status-bar param view (activity bar) or the
    `Status Bar Parameter: Add Parameter` command. The wizard asks for the target
-   file, type, id, and values; advanced options are optional. Right after the type,
-   it offers to either guide you through the values or **insert a complete example
-   to edit in JSON** — handy for the named-output shape, which is quicker to tweak
-   in the file than to enter prompt by prompt.
+   file, type, id, and values; advanced options are optional. Once the parameter is
+   described (type, id, and — for an array — value shape), it offers to either guide
+   you through the values or **insert a complete example to edit in JSON** — handy for
+   the named-output shape, which is quicker to tweak in the file than to enter prompt
+   by prompt.
 2. **Select a value** by clicking the item in the status bar, or with
    `Status Bar Parameter: Change Selection`.
 3. **Use the value** in a configuration file via VS Code variable substitution:
@@ -67,7 +68,7 @@ IntelliSense is available there.
 
 ## Value shapes
 
-An array parameter's values are defined in the wizard right after the type, or by
+An array parameter's value shape is chosen in the wizard after the id, or by
 editing `values` directly. Plain and display-labelled values can be mixed. Named
 values cannot be mixed with either, because a keyless reference has no single
 value to return for a named entry.

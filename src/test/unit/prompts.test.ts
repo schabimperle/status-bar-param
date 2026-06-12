@@ -166,7 +166,7 @@ const CTX: prompts.WizardContext = { showNamesDefault: false, showSelectionsDefa
 const noAdvanced = () => showQuickPick.mockResolvedValueOnce([]);
 // pick the given advanced option keys (canPickMany, initialSelection, ...)
 const advanced = (...keys: string[]) => showQuickPick.mockResolvedValueOnce(keys.map((key) => ({ key })));
-// the value shape is now chosen before the id (in commands.ts) and passed into
+// the value shape is chosen after the id (in commands.ts) and passed into
 // promptParamArgs as its third argument, so the array tests pass it directly
 
 describe('promptParamArgs (array)', () => {

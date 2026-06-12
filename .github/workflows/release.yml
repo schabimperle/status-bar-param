@@ -67,8 +67,9 @@ jobs:
 
       # Run the same fast, high-signal gates CI enforces, so a tag pushed from a
       # commit that never passed CI can't publish on green unit tests alone. The
-      # heavier integration/remote smoke jobs stay in ci.yml (they need xvfb/SSH);
-      # these three plus the packaging step below cover the release-critical checks.
+      # integration smoke test runs as the `integration` job above (this job needs
+      # it); the remote smoke job stays in ci.yml (heavier SSH setup, rarely
+      # release-affecting). These plus the packaging step cover the release checks.
       - name: Lint
         run: npm run lint
 

@@ -99,7 +99,7 @@ async function flowAdd(page) {
     }
     await waitForPrompt(page, 'parameter value');
     await typeQuick(page, ''); // empty -> finish
-    // 5) advanced options multi-select -> check only "Add a sample task" so the
+    // 7) advanced options multi-select -> check only "Add a sample task" so the
     //    extension scaffolds a runnable task (section 3 customizes it); all other
     //    options are left unchecked at their defaults. Driven by the KEYBOARD only:
     //    ArrowDown to the "sample task" row (no typing/filtering), Space toggles its
