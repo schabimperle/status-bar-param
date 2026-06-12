@@ -145,7 +145,10 @@ trigger IntelliSense):
 ## Settings
 
 - `statusBarParam.showNames` (default `false`) — show each parameter's name in
-  front of its value in the status bar.
+  front of its value in the status bar. A parameter with nothing selected (e.g. a
+  multi-select with no choice yet, or a command with empty output) always shows its
+  greyed name as a fallback, regardless of this setting, so the item stays
+  identifiable instead of rendering blank.
 - `statusBarParam.showSelections` (default `true`) — show the selected value in
   the status bar.
 

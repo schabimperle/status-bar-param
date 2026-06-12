@@ -74,7 +74,7 @@
           "scope": "resource",
           "type": "boolean",
           "default": false,
-          "description": "Show the names of parameters in front of the selected value in the status bar."
+          "description": "Show the names of parameters in front of the selected value in the status bar. A parameter with nothing selected always shows its name (greyed) regardless of this setting, so the status-bar item stays identifiable instead of rendering blank."
         },
         "statusBarParam.showSelections": {
           "scope": "resource",
