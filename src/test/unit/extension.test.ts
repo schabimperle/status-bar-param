@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as extension from '../../extension';
 import { Strings } from '../../strings';
+import { JsonFile } from '../../jsonFile';
 
 const registerCommand = vscode.commands.registerCommand as jest.Mock;
 const registerTreeDataProvider = vscode.window.registerTreeDataProvider as jest.Mock;
@@ -57,6 +58,7 @@ describe('activate', () => {
         for (const command of [
             Strings.COMMAND_ADD,
             Strings.COMMAND_ADD_TO_FILE,
+            Strings.COMMAND_OPEN_FILE,
             Strings.COMMAND_RESET_SELECTIONS,
             Strings.COMMAND_SELECT,
             Strings.COMMAND_EDIT,
@@ -191,6 +193,35 @@ describe('param command fallback picker', () => {
         await editHandler()();
         expect(vscode.window.showQuickPick).toHaveBeenCalled();
         expect(reveal).toHaveBeenCalled();
+    });
+});
+
+describe('open-file command', () => {
+    function openHandler(): (jsonFile?: unknown) => void {
+        extension.activate(makeContext());
+        const call = registerCommand.mock.calls.find((c) => c[0] === Strings.COMMAND_OPEN_FILE)!;
+        return call[1] as (jsonFile?: unknown) => void;
+    }
+
+    it('opens a JsonFile handed over by the tree node', () => {
+        const open = jest.spyOn(JsonFile.prototype, 'open').mockResolvedValue(undefined);
+        try {
+            // a real JsonFile instance (prototype chain) so the handler's instanceof passes
+            openHandler()(Object.create(JsonFile.prototype));
+            expect(open).toHaveBeenCalled();
+        } finally {
+            open.mockRestore();
+        }
+    });
+
+    it('ignores a non-JsonFile argument (e.g. a focused param node)', () => {
+        const open = jest.spyOn(JsonFile.prototype, 'open').mockResolvedValue(undefined);
+        try {
+            openHandler()({ id: 'p' });
+            expect(open).not.toHaveBeenCalled();
+        } finally {
+            open.mockRestore();
+        }
     });
 });
 

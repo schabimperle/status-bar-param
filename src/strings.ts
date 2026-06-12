@@ -4,6 +4,7 @@ export const Strings = {
     EXTENSION_ID,
     COMMAND_ADD: `${EXTENSION_ID}.add`,
     COMMAND_ADD_TO_FILE: `${EXTENSION_ID}.addToFile`,
+    COMMAND_OPEN_FILE: `${EXTENSION_ID}.openFile`,
     COMMAND_RESET_SELECTIONS: `${EXTENSION_ID}.resetSelections`,
     COMMAND_SELECT: `${EXTENSION_ID}.select`,
     COMMAND_EDIT: `${EXTENSION_ID}.edit`,

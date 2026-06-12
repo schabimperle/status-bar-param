@@ -510,6 +510,9 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
     const validContentP = JSON.stringify({
         inputs: [{ id: 'p', type: 'command', command: 'statusBarParam.get.p', args: ['a'] }],
     });
+    const validContentMyId = JSON.stringify({
+        inputs: [{ id: 'myId', type: 'command', command: 'statusBarParam.get.myId', args: ['a', 'b'] }],
+    });
     let applyEdit: jest.SpyInstance;
     let executeCommand: jest.SpyInstance;
 
@@ -656,6 +659,43 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
         expect(doc.save).toHaveBeenCalled();
     });
 
+    // Bug fix: the tree node's click opens the file via JsonFile.open(). The user
+    // tasks.json's uri is a vscode-userdata placeholder a remote host can't open, so it
+    // must route through the workbench (showTextDocument of the opened document), not a
+    // bare vscode.open on that uri (which fails with "file does not exist").
+    it('open shows the user tasks document via the workbench, not vscode.open on the placeholder', async () => {
+        const doc = fakeDoc('{}');
+        (vscode.workspace as unknown as { textDocuments: vscode.TextDocument[] }).textDocuments = [doc];
+        const show = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.open();
+            expect(show).toHaveBeenCalledWith(doc);
+            expect(executeCommand).not.toHaveBeenCalledWith('vscode.open', expect.anything());
+        } finally {
+            show.mockRestore();
+        }
+    });
+
+    it('open uses vscode.open for a normal (openable) file uri', async () => {
+        const file = makeFile('/ws/.vscode/tasks.json');
+        await file.open();
+        expect(executeCommand).toHaveBeenCalledWith('vscode.open', file.uri);
+    });
+
+    it('open surfaces an error when the user tasks document fails to open', async () => {
+        const errSpy = jest.spyOn(vscode.window, 'showErrorMessage').mockResolvedValue(undefined);
+        const openUserData = jest.spyOn(JsonFile.prototype, 'openUserDataDocument').mockRejectedValue(new Error('timed out'));
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await file.open();
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('timed out'));
+        } finally {
+            errSpy.mockRestore();
+            openUserData.mockRestore();
+        }
+    });
+
     // a mock `tasks` config whose Global values come from `seed`; returns the update spy
     function mockTasksConfig(seed: { inputs?: unknown[]; tasks?: unknown[]; version?: string } = {}) {
         const update = jest.fn().mockResolvedValue(undefined);
@@ -666,12 +706,13 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
         return { update, restore: () => getConfiguration.mockRestore() };
     }
 
-    // Regression: opening the user tasks.json to edit it (via the workbench's
+    // Regression: editing the user tasks.json to add a param (via the workbench's
     // openUserTasks) pops VS Code's "create tasks.json from template" picker whenever
-    // the file has no tasks — confusing, and the picker overwrites our inputs. Adding a
-    // param must therefore NOT open the file: it writes the `tasks` configuration (the
-    // channel its inputs are read from), which creates/updates the file silently.
-    it('adds a param to the user tasks file via the tasks config, never opening it (no template picker)', async () => {
+    // the file has no tasks — confusing, and the picker overwrites our inputs. The
+    // *write* must therefore not open the file: it writes the `tasks` configuration (the
+    // channel its inputs are read from), which creates/updates the file silently. (The
+    // reveal that opens the file is a separate, later step — see the reveal test below.)
+    it('writes a user-tasks param via the tasks config without opening the file (no template picker)', async () => {
         const { update, restore } = mockTasksConfig({ tasks: [{ label: 'existing' }] });
         try {
             const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
@@ -683,11 +724,59 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
                 [expect.objectContaining({ id: 'myId', type: 'command', args: ['a', 'b'] })],
                 vscode.ConfigurationTarget.Global,
             );
-            // ...and neither the template-prompting open command nor a document edit is used
+            // ...and the write itself uses neither the template-prompting open command
+            // nor a document edit (the reveal happens later, on the config-change re-parse)
             expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.tasks.openUserTasks');
             expect(applyEdit).not.toHaveBeenCalled();
         } finally {
             restore();
+        }
+    });
+
+    // Bug fix: after writing the param, the file must open for editing (like every other
+    // file) — the example wizard especially seeds an example to edit. The write arms the
+    // reveal (paramIdToEditOnCreate); the config-change re-parse then opens the file. Safe
+    // because addParamToUserTasks guarantees a task, so openUserTasks won't pop the picker.
+    it('reveals (opens) the new param on the re-parse the config write triggers', async () => {
+        // a user tasks doc is already open, so the reveal's openUserDataDocument resolves
+        // to it immediately and goes on to show it
+        const doc = fakeDoc(validContentMyId);
+        (vscode.workspace as unknown as { textDocuments: vscode.TextDocument[] }).textDocuments = [doc];
+        const show = jest.spyOn(vscode.window, 'showTextDocument').mockResolvedValue({} as never);
+        let inputs: unknown[] = [];
+        const update = jest.fn().mockImplementation((key: string, value: unknown[]) => {
+            if (key === 'inputs') {
+                inputs = value;
+            }
+            return Promise.resolve();
+        });
+        const getConfiguration = jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+            inspect: (key: string) => (key === 'inputs' ? { globalValue: inputs } : { globalValue: [{ label: 'existing' }] }),
+            update,
+        } as unknown as vscode.WorkspaceConfiguration);
+        try {
+            const file = JsonFile.createFromPathOutsideWorkspace(1, placeholder, fakeConfig(), new vscode.EventEmitter());
+            await flush();
+            await flush();
+            await file.addParam('myId', ['a', 'b'], false);
+            // the write does not open the file by itself
+            expect(executeCommand).not.toHaveBeenCalledWith('workbench.action.tasks.openUserTasks');
+
+            // VS Code fires the tasks-config change the write caused; the re-parse reveals
+            const onConfigChange = (vscode.workspace.onDidChangeConfiguration as jest.Mock).mock.calls.at(-1)![0] as (
+                e: vscode.ConfigurationChangeEvent,
+            ) => void;
+            onConfigChange({ affectsConfiguration: (section: string) => section === 'tasks' } as vscode.ConfigurationChangeEvent);
+            await flush();
+            await flush();
+
+            // the new param is now revealed: the already-open user tasks document is
+            // shown (openUserDataDocument returns it without re-running openUserTasks)
+            expect(show).toHaveBeenCalled();
+            expect(show.mock.calls.at(-1)![0]).toBe(doc);
+        } finally {
+            getConfiguration.mockRestore();
+            show.mockRestore();
         }
     });
 

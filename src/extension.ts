@@ -47,6 +47,14 @@ class StatusBarParam {
                 onAddParam(this.config, this.jsonFiles, jsonFile instanceof JsonFile ? jsonFile : undefined),
             ),
             commands.registerCommand(Strings.COMMAND_RESET_SELECTIONS, () => onReset(this.config, this.jsonFiles)),
+            // open a file node from the tree. Routed through the JsonFile (not a bare
+            // vscode.open on its uri) so the user tasks.json, whose uri is an unopenable
+            // vscode-userdata placeholder remotely, opens via the workbench instead.
+            commands.registerCommand(Strings.COMMAND_OPEN_FILE, (jsonFile?: JsonFile) => {
+                if (jsonFile instanceof JsonFile) {
+                    jsonFile.open();
+                }
+            }),
 
             // param commands (fall back to a picker when invoked without a param)
             this.createParamCommand(Strings.COMMAND_SELECT, onSelect),

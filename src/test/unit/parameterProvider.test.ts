@@ -40,7 +40,11 @@ describe('ParameterProvider.getTreeItem', () => {
         const item = new ParameterProvider([file], new vscode.EventEmitter()).getTreeItem(file);
         expect(item.contextValue).toBe('JsonFile');
         expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
-        expect(item.command?.command).toBe('vscode.open');
+        // clicking the node routes through the extension's open command with the
+        // JsonFile (not a bare vscode.open on its uri), so the user tasks.json's
+        // unopenable vscode-userdata placeholder opens via the workbench instead
+        expect(item.command?.command).toBe(Strings.COMMAND_OPEN_FILE);
+        expect(item.command?.arguments).toEqual([file]);
         expect(item.resourceUri).toBe(file.uri);
     });
 

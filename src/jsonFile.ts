@@ -248,6 +248,23 @@ export class JsonFile implements Disposable {
         });
     }
 
+    // open this file in an editor — the tree node's click action. The user (global)
+    // tasks.json has no directly-openable uri (a vscode-userdata placeholder in a remote
+    // window, where `vscode.open` fails with "file does not exist"), so route it through
+    // the workbench's openUserTasks via openUserDataDocument; every other file opens by
+    // its uri.
+    async open(): Promise<void> {
+        try {
+            if (this.useDocumentIO) {
+                await window.showTextDocument(await this.openUserDataDocument());
+            } else {
+                await commands.executeCommand('vscode.open', this.uri);
+            }
+        } catch (err) {
+            window.showErrorMessage(`Failed to open ${this.getFileName()}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
     hasParams() {
         return this.params.length > 0;
     }
@@ -456,15 +473,17 @@ export class JsonFile implements Disposable {
     async addParam(id: string, args: ArrayValue[] | ArrayOptions | CommandOptions, addSampleTask: boolean, headerComment?: string) {
         try {
             if (this.useDocumentIO) {
-                // The user (global) tasks.json has no openable uri; the only way to open
-                // it is the workbench's `openUserTasks` command, which pops VS Code's
-                // "create tasks.json from template" picker whenever the file has no
-                // tasks defined (and the picker overwrites the file, dropping our
-                // inputs). So we add params by writing the `tasks` configuration (the
-                // same channel inputs are read from) instead of opening the file, and
-                // make sure the file is never left task-less. The re-parse on the
-                // config change shows the new param; no reveal, since opening the file
-                // is exactly what we are avoiding.
+                // The user (global) tasks.json has no openable uri, and opening it via the
+                // workbench's `openUserTasks` pops VS Code's "create tasks.json from
+                // template" picker whenever the file has no tasks (the picker then
+                // overwrites the file, dropping our inputs). So the *write* goes through
+                // the `tasks` configuration (the channel inputs are read from) rather than
+                // by editing the opened document, and addParamToUserTasks guarantees the
+                // file is never left task-less. Setting paramIdToEditOnCreate has the
+                // config-change re-parse reveal the new param afterwards (like every other
+                // file) — safe precisely because a task is now guaranteed, so the reveal's
+                // openUserTasks can't trigger the picker.
+                this.paramIdToEditOnCreate = id;
                 await this.addParamToUserTasks(id, args, addSampleTask, headerComment);
                 return;
             }

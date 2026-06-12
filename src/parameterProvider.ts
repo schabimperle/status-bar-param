@@ -31,8 +31,11 @@ export class ParameterProvider implements TreeDataProvider<JsonFile | Param> {
                 contextValue: 'JsonFile',
                 command: {
                     title: 'Open',
-                    command: 'vscode.open',
-                    arguments: [element.uri],
+                    // open via the JsonFile, not a bare vscode.open on its uri: the user
+                    // tasks.json's uri is an unopenable vscode-userdata placeholder in a
+                    // remote window, which vscode.open rejects with "file does not exist"
+                    command: Strings.COMMAND_OPEN_FILE,
+                    arguments: [element],
                 },
             };
         } else {
