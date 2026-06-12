@@ -17,12 +17,18 @@
 #   * gifsicle -O3 for inter-frame optimization, plus an optional lossy pass.
 #
 # Env knobs: COLORS (default 128), LOSSY (gifsicle --lossy, default 0 = lossless;
-# set e.g. LOSSY=30 to trade some edge sharpness for a smaller file). Prefers gifski
-# if installed (best quality/size), else the tuned ffmpeg pipeline.
+# set e.g. LOSSY=30 to trade some edge sharpness for a smaller file).
+#
+# Encoder: the tuned ffmpeg pipeline by default, because it preserves the recorder's
+# VARIABLE per-frame delays (a long pause stays a long frame) — the demo's pacing
+# depends on that. gifski compresses ~2x better but replays the decimated frames at a
+# UNIFORM fps, which flattens every pause (a 70s demo collapses to ~30s of constant
+# motion). So gifski is opt-in only, via USE_GIFSKI=1, and intended for clips without
+# deliberate holds. Don't enable it for the guided full demo.
 #
 # Install helpers:
 #   sudo apt install ffmpeg gifsicle
-#   cargo install gifski          # or: brew install gifski
+#   npm i -g gifski   # or: cargo install gifski / brew install gifski (only for USE_GIFSKI=1)
 set -euo pipefail
 
 IN="${1:?usage: make-gif.sh INPUT.mp4 OUTPUT.gif [WIDTH] [FPS]}"
@@ -41,7 +47,8 @@ command -v ffmpeg >/dev/null || { echo "ffmpeg is required" >&2; exit 1; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-if command -v gifski >/dev/null; then
+if [ "${USE_GIFSKI:-0}" = 1 ] && command -v gifski >/dev/null; then
+    echo ">> WARNING: USE_GIFSKI=1 — replays at a uniform ${FPS}fps, FLATTENING the recorded pauses." >&2
     echo ">> extracting frames (fps=$FPS, width=$WIDTH) ..."
     ffmpeg -hide_banner -loglevel error -i "$IN" \
         -vf "fps=$FPS,$DECIMATE,scale=$WIDTH:-1:flags=lanczos" -fps_mode vfr "$tmp/frame_%05d.png"

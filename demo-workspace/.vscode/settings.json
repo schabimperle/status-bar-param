@@ -10,6 +10,11 @@
   "workbench.colorTheme": "Dark Modern",
   "editor.fontSize": 15,
   "terminal.integrated.fontSize": 14,
+  // Freeze blinking carets (editor + terminal) so a static hold collapses to ONE
+  // GIF frame instead of one per blink — smaller file, and the pauses read as truly
+  // still. The quick-input box's native caret is frozen via CSS in record-demo.
+  "editor.cursorBlinking": "solid",
+  "terminal.integrated.cursorBlinking": false,
   "window.menuBarVisibility": "hidden",
   "explorer.openEditors.visible": 0,
   "git.openRepositoryInParentFolders": "never",

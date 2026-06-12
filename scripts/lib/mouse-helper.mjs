@@ -15,6 +15,11 @@ const HELPER = String.raw`
   const install = () => {
     const style = document.createElement('style');
     style.textContent = ` + '`' + `
+      /* Freeze the blinking text caret in quick-input boxes / inputs so a static
+         hold collapses to one GIF frame instead of one per blink (the editor and
+         terminal carets are frozen via the demo-workspace settings). Purely visual
+         — typing/filtering still works; the typed text appears as before. */
+      * { caret-color: transparent !important; }
       .__cursor {
         position: fixed; top: 0; left: 0; z-index: 2147483647;
         width: 20px; height: 28px; margin: 0; pointer-events: none;

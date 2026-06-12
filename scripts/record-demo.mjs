@@ -34,9 +34,19 @@ const VIEW = { width: 1280, height: 720 };
 const PARAM = { name: 'environment', values: ['development', 'staging', 'production'] };
 // the demo selects values[PICK] to show navigating the value list with the keyboard
 const PICK = 2;
-// one consistent "beat" (ms) held between visible steps/sections so the pacing of
-// the breaks is uniform across the GIF (functional waits below are separate)
-const HOLD = 2500;
+// Cosmetic "beats" (ms): the stillness held at each KIND of moment, so the GIF's
+// rhythm is uniform and tunable in ONE place. Functional waits (waitForPrompt, the
+// `waitFor visible` calls) are separate and don't count toward pacing. Named by the
+// moment rather than the duration, so the intent stays legible:
+//   READ      absorb a freshly-shown prompt/question before acting on it
+//   READ_LED  same, but the picker was reached by a CLICK whose settle already gave
+//             a reading beat — so this doesn't double-count it (fixes the long hold
+//             after "Add Parameter": glideClick.settle + READ was ~1.85s of dead air)
+//   RESULT    let an action's outcome register, briefly, before a section title card
+//             covers it — the card itself is the section break, so this stays short
+//   MIDBEAT   a breather WITHIN a section (not at a section boundary)
+//   KEY       between keypresses in a visible run (e.g. an ArrowDown glide)
+const BEAT = { READ: 1000, READ_LED: 550, RESULT: 1200, MIDBEAT: 1400, KEY: 260 };
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -49,18 +59,38 @@ async function flowAdd(page) {
     await glideClick(page, viewIcon, { dur: 650 });
     const addBtn = page.locator('.monaco-button, a.monaco-button', { hasText: 'Add Parameter' }).first();
     await glideClick(page, addBtn, { dur: 600 });
-    // 1) pick target json file with the KEYBOARD (cursor stays on the button):
-    //    row 1 is the User tasks file, ArrowDown picks the workspace tasks.json.
+    // 1) pick the target json file with the KEYBOARD (cursor stays on the button).
+    //    Target the WORKSPACE tasks.json by content, not a fixed offset: the list is
+    //    local-first and registers launch.json right after the workspace tasks.json,
+    //    so a magic ArrowDown count silently lands on the wrong file when the order
+    //    shifts (it did). Compute the presses that reach the 'tasks.json' row that
+    //    isn't the 'User (Global)' one. READ_LED: the click that opened this picker
+    //    already settled, so don't stack a full READ on top (the long-hold-after-
+    //    "Add Parameter" gap).
     await waitForPrompt(page, 'file where the parameter');
-    await acceptQuick(page, { downs: 1 });
+    const fileRow = page.locator('.quick-input-list .monaco-list-row', { hasText: 'tasks.json' })
+        .filter({ hasNotText: 'User (Global)' }).first();
+    await fileRow.waitFor({ state: 'visible', timeout: 8000 });
+    const fileDowns = await fileRow.evaluate((el) => {
+        const target = Number(el.getAttribute('data-index'));
+        const focused = el.closest('.monaco-list').querySelector('.monaco-list-row.focused');
+        const from = focused ? Number(focused.getAttribute('data-index')) : -1; // none focused -> first press lands on row 0
+        return target - from;
+    });
+    await acceptQuick(page, { downs: Math.max(0, fileDowns), read: BEAT.READ_LED });
     // 2) pick type -> Array (first)
     await waitForPrompt(page, 'type of the parameter');
-    await acceptQuick(page);
+    await acceptQuick(page, { read: BEAT.READ });
+    // 2a) creation mode -> "Guide me through it" (first row). New in 1.9.0: right
+    //     after the type the wizard forks between being guided and dropping an
+    //     example to edit in JSON; the demo shows the guided flow, so accept row 1.
+    await waitForPrompt(page, 'want to define');
+    await acceptQuick(page, { read: BEAT.READ });
     // 2b) value shape -> Plain values (first row). The wizard asks how the values
-    //     are defined (plain / display labels / named outputs) right after the type
-    //     and before the name; the demo param is a plain list, so accept the first.
+    //     are defined (plain / display labels / named outputs) right after the
+    //     creation mode and before the name; the demo param is a plain list.
     await waitForPrompt(page, 'how to define');
-    await acceptQuick(page);
+    await acceptQuick(page, { read: BEAT.READ });
     // 3) name
     await waitForPrompt(page, 'name of the parameter');
     await typeQuick(page, PARAM.name);
@@ -94,7 +124,7 @@ async function flowAdd(page) {
     });
     for (let i = 0; i < downs; i++) {
         await page.keyboard.press('ArrowDown'); // glide the active row down toward "Add a sample task"
-        await pause(280);
+        await pause(BEAT.KEY);
     }
     await pause(500);
     await page.keyboard.press('Space'); // toggle the "Add a sample task" checkbox (Space isn't badged)
@@ -106,7 +136,7 @@ async function flowAdd(page) {
     await acceptQuick(page); // Enter activates the focused OK button, confirming the multi-select
     // wait for the new status bar item to appear (file scanned), then a consistent beat
     await page.locator('.statusbar-item', { hasText: PARAM.values[0] }).first().waitFor({ state: 'visible', timeout: 15000 });
-    await pause(HOLD);
+    await pause(BEAT.RESULT);
 }
 
 async function flowSelect(page) {
@@ -120,9 +150,9 @@ async function flowSelect(page) {
     await target.waitFor({ state: 'visible', timeout: 12000 });
     await pause(1200); // let the value list be read before navigating it
     await acceptQuick(page, { downs: PICK });
-    // hold on the newly selected value in the status bar so this section reads as
-    // its own step (not merged into the next), matching the other inter-step beats
-    await pause(HOLD);
+    // brief hold on the newly selected value before the next section's title card
+    // takes over (the card is the real section break, so this stays short)
+    await pause(BEAT.RESULT);
 }
 
 async function flowRetrieve(page) {
@@ -184,9 +214,9 @@ async function flowCustomizeTask(page) {
 // Run the scaffolded (now customized) task, which echoes the selected value --
 // shows the parameter actually being used.
 async function flowRunTask(page) {
-    // hold on the freshly selected value so it registers before we move on,
-    // making the jump from "selected a value" to "run a task" easy to follow
-    await pause(HOLD);
+    // a breather on the freshly customized task before we run it, so the jump from
+    // "edited the task" to "run it" is easy to follow (mid-section, not a boundary)
+    await pause(BEAT.MIDBEAT);
     await runCommand(page, 'Tasks: Run Task');
     await pause(1600);
     // our configured task is listed first and pre-highlighted -- confirm with the

@@ -26,9 +26,12 @@ GATEWAY="${GATEWAY:-192.168.48.1}"          # host IP as seen from the CDP brows
 BASE_URL="${BASE_URL:-http://$GATEWAY:$PORT}"
 # 15 matches the screencast capture rate; make-gif.sh's mpdecimate drops the
 # redundant frames, so a higher fps here only bloats the GIF without adding motion
-GIF_WIDTH="${GIF_WIDTH:-1280}"          # native capture width -> no upscaling, crisp text
+# 860 wide ~= the GitHub README content column, so it renders crisp there at about
+# half the bytes of the 1280 capture (downscaled with lanczos, still sharp). Bump to
+# 1280 only if you need pixel-for-pixel on very wide displays (roughly doubles size).
+GIF_WIDTH="${GIF_WIDTH:-860}"
 GIF_FPS="${GIF_FPS:-15}"
-GIF_LOSSY="${GIF_LOSSY:-10}"            # gifsicle --lossy; trims size at higher resolution
+GIF_LOSSY="${GIF_LOSSY:-30}"            # gifsicle --lossy; trims size with no visible text loss at this width
 OUT_DIR="${OUT_DIR:-/tmp/sbp-demo}"
 
 INSTALL=0
