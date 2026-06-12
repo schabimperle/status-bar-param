@@ -4,110 +4,156 @@ All notable changes to the "status-bar-param" extension will be documented in th
 
 ## [1.9.0]
 
-- Added an "Add Parameter to File" command: the per-file inline `+` on a tree node now uses its own command (`statusBarParam.addToFile`) that adds straight to that file, while the command-palette entry and the view-title `+` always prompt for the target file. This fixes the shared command silently skipping the file prompt, since VS Code hands the focused tree node to a view-title command. Also hardened revealing a parameter in the global user `tasks.json` (it now awaits the real opened document and surfaces an error if the open fails, instead of racing the active editor).
-- Added an "insert an example to edit" mode to the add-parameter wizard: after the type pick you can either be guided through the value/option prompts as before, or have the wizard seed a complete, schema-valid example of the chosen value shape to edit directly in JSON, with a shape-aware how-to comment — handy for the named-output shape, whose value/key matrix is tedious to enter prompt by prompt. The example path still pre-checks named output keys against the existing command namespace (so a `${command:statusBarParam.get.<id>.<key>}` collision aborts before writing), and the how-to comment is written above the input for a document file or surfaced as a message for the user `tasks.json`, which can't embed comments.
-- Ordered the file list in both the wizard's file picker and the tree view so local workspace config files come first, the `.code-workspace` next, and the global user `tasks.json` last (previously the user tasks file, registered first, appeared at the top even though the local files are the usual edit target).
-- Refined the Marketplace categories, keywords, and extension description for discoverability.
-- Fixed clicking the global user `tasks.json` in the Status Bar Parameter view failing with a "file does not exist" error in remote windows: its uri is a `vscode-userdata` placeholder that can't be opened directly, so the tree now opens it through the workbench (like the rest of the extension) instead of a bare `vscode.open` on that uri.
-- Fixed the user `tasks.json` not opening after adding a parameter to it (e.g. an example inserted by the wizard, which is meant to be edited): the new parameter is now revealed and the file opened for editing, consistent with every other file. This is safe because adding always leaves at least one task, so opening never triggers VS Code's "create tasks.json from template" picker.
+### Added
+
+- **"Add Parameter to File" command** — the inline `+` on a tree node now adds straight to that file instead of silently skipping the target-file prompt.
+- **"Insert an example to edit" wizard mode** — seed a complete, schema-valid example of the chosen value shape to tweak directly in JSON, with a how-to comment. Especially handy for named outputs.
+
+### Changed
+
+- **File lists ordered** local config → `.code-workspace` → global user `tasks.json`, in both the wizard picker and the tree.
+- **Clearer `initialSelection` IntelliSense** — the schema now spells out how each value shape is referenced and offers completion examples.
+- Refined Marketplace categories, keywords, and description.
+
+### Fixed
+
+- **Global user `tasks.json` opens in remote windows** — its `vscode-userdata` uri is now opened through the workbench instead of directly.
+- **User `tasks.json` opens after adding a parameter**, consistent with every other file.
 
 ## [1.8.0]
 
-- Added named (secondary) values: a value's `value` can be a map of named outputs (with a required `displayValue`), each retrievable via `${command:statusBarParam.get.<id>.<key>}`, so one selection can drive several outputs — for example a compiler picker feeding both `CC` and `CXX`. A keyless reference to a map resolves to an empty string with a warning. The add-parameter wizard can build named values too, via a new value-shape step (plain / display labels / named outputs) chosen before the values are entered. Plain/labelled and named values can't be mixed in one parameter, since a keyless reference has no meaning for a named entry. A named value's `displayValue` must be unique (the wizard enforces this), since `initialSelection` references that label rather than the value's opaque canonical-JSON identity. The optional sample task is offered for named values too, scaffolding a task that echoes each `${command:statusBarParam.get.<id>.<key>}` reference (instead of the keyless `${input:<id>}`, which is empty for a map), and the "Copy Reference" command offers each named output's `${command:…}` reference. (#10)
-- Added a `joinSeparator` option to customize the string used to join multiple selected values when a parameter is substituted into a task (only relevant with `canPickMany`). It defaults to a single space, so existing behavior is unchanged. In the add-parameter wizard it's asked as a follow-up to enabling "select multiple values" (where it actually applies, rather than as a standalone advanced option), and backslash escapes you type there (`\n`, `\t`, `\r`, `\\`) are interpreted once and stored as the real character — the same as the command `separator`. When editing `args` directly, use the value verbatim (it isn't re-interpreted at substitution time, so write a real newline / `"\n"` rather than `"\\n"`).
+### Added
+
+- **Named (secondary) values** — a value's `value` can be a map of named outputs (with a required `displayValue`), each read via `${command:statusBarParam.get.<id>.<key>}`, so one selection drives several outputs (e.g. a compiler pick feeding both `CC` and `CXX`). The wizard builds them via a new value-shape step (plain / labelled / named). (#10)
+- **`joinSeparator` option** — customize the string joining multiple selected values (only relevant with `canPickMany`; defaults to a single space, so existing behavior is unchanged).
+
+### Changed
+
 - Documented that a substituted parameter is passed as a single argument (a value with spaces is not split), with the shell-command / `options.env` workarounds.
-- Internal: hardened the new named-value handling — output keys are validated (and reserved prototype names rejected), the add-parameter wizard preflights the whole command-id namespace so a colliding id/key is caught before it's written, and a secondary-command registration clash is surfaced rather than silently dropped. Added a local pre-commit hook running the format/lint gates.
+
+### Internal
+
+- Hardened named-value handling — output-key validation (reserved prototype names rejected), command-namespace preflight, and surfaced registration clashes. Added a pre-commit format/lint hook.
 
 ## [1.7.0]
 
-- Added reliable support for parameters in the global user `tasks.json`, including in remote windows. Adding or removing a user-tasks parameter no longer triggers VS Code's "create tasks.json from template" picker.
-- Reworked the add-parameter wizard: after the core steps (target file, type, id, values/command) an optional multi-select offers the advanced options — display labels, initial selection, status-bar name/value visibility, a command's working directory/separator, and a sample task — where selecting none keeps the defaults. When adding a parameter to a configuration file, a one-time inline comment also points to JSON IntelliSense for editing the `args` object directly.
-- Preserved the existing indentation of a configuration file when inserting or editing a parameter, instead of re-flowing the touched properties.
-- Fixed the status-bar coloring so a parameter with a selected value stands out while an empty one is dimmed (previously the inactive color could appear brighter, and an all-whitespace value rendered as active).
-- Fixed editing a parameter jumping the cursor to the wrong position (now located by parameter id in the current document text), including in the user `tasks.json`.
-- Fixed a custom command separator typed as an escape sequence (e.g. `\n`, `\t`) being written literally and never matching; escapes are now interpreted.
-- Renamed the "Copy Retrieval String" command to "Copy Reference".
-- Replaced the per-step demo GIFs with a single guided walkthrough (add → select → use in a task) and overhauled the README.
-- Added an MIT license and project documentation (CONTRIBUTING, SECURITY).
-- Internal: restructured the extension into modules, hardened core logic, and added a full unit, integration, and remote smoke-test suite plus CI.
+### Added
+
+- **Reliable global user `tasks.json` support**, including remote windows — adding or removing a parameter no longer triggers VS Code's "create tasks.json from template" picker.
+- **Reworked add-parameter wizard** — an optional advanced multi-select (display labels, initial selection, status-bar visibility, command cwd/separator, sample task), where selecting none keeps the defaults. A one-time inline comment points to JSON IntelliSense for editing `args` directly.
+
+### Changed
+
+- Preserve a configuration file's existing indentation when inserting or editing a parameter.
+- Renamed "Copy Retrieval String" → "Copy Reference".
+- Replaced the per-step demo GIFs with a single guided walkthrough (add → select → use in a task); overhauled the README.
+- Added an MIT license and project docs (CONTRIBUTING, SECURITY).
+
+### Fixed
+
+- Status-bar coloring — a selected value stands out while an empty one is dimmed (an all-whitespace value no longer renders as active).
+- Editing a parameter no longer jumps the cursor to the wrong position (now located by id), including in the user `tasks.json`.
+- A custom separator typed as an escape sequence (`\n`, `\t`) is now interpreted instead of written literally and never matching.
+
+### Internal
+
+- Restructured the extension into modules and added unit, integration, and remote smoke tests plus CI.
 
 ## [1.6.0]
 
-- Added parsing the 'initialSelection' value from the argument section of parameters, which can be used to set an initial selection.
-- Fixed not parsing the inputs section of the 'launch' configuration of .code-workspace files.
+### Added
+
+- **`initialSelection`** parsed from a parameter's `args` to set an initial selection.
+
+### Fixed
+
+- Parse the `inputs` section of a `.code-workspace`'s `launch` configuration.
 
 ## [1.5.0]
 
-- Added hide options, globally and per parameter (showName/s, showSelection/s).
-- Moved tree view to its own view container.
+### Added
+
+- Hide options, global and per-parameter (`showName(s)`, `showSelection(s)`).
+
+### Changed
+
+- Moved the tree view to its own view container.
 
 ## [1.4.0]
 
-- Added retrieving values from shell commands.
-- Added option for multiple selection.
-- Added tree view (tab in file explorer).
-- Added commands to:
-    - ... Edit a parameter.
-    - ... Copy the retrieval string for a parameter.
-    - ... Delete a parameter.
-    - ... Select a parameter.
-- Added json schema validation for input sections.
-- Minor improvements and bugfixes.
-    - Preselection of the last picked value in selection list.
-    - Made adding sample task optional.
-    - Added icons for array and command parameters.
-    - Updated extension overview.
+### Added
+
+- Retrieve values from shell commands.
+- Multiple selection.
+- Tree view (tab in the file explorer).
+- Commands to edit, copy the reference for, delete, and select a parameter.
+- JSON schema validation for input sections.
+
+### Fixed
+
+- Preselect the last picked value in the selection list.
+- Made adding a sample task optional.
+- Added icons for array and command parameters.
 
 ## [1.3.1]
 
-- Added parsing inputs from launch.json.
+- Parse `inputs` from `launch.json`, so a debug configuration's `${input:<id>}` can be driven from the status bar too.
 
 ## [1.3.0]
 
-- Added parsing inputs from .code-workspace file.
+- Parse `inputs` from a `.code-workspace` file, so parameters declared in a multi-folder workspace are picked up alongside those in `tasks.json`.
 
 ## [1.2.4]
 
-- Fixed "Feature Contributions" listing in extensions view of status bar param.
+- Fixed the extension's "Feature Contributions" tab not listing its settings and commands in the Extensions view.
 
 ## [1.2.3]
 
-- Fixed bug from 1.0.7.
+- Fixed the long-standing bug from 1.0.7 — `inputs` defined in `tasks.json` failing to initialize on startup — for real this time.
 
 ## [1.2.0 - 1.2.2]
 
-- Increased version accidentially. Unpublishing not possible...
+- No functional changes — the version was bumped accidentally and a published version can't be unpublished.
 
 ## [1.0.7]
 
-- Tried Fixing bug at loading inputs in tasks.json (didn't work).
+- Attempted a fix for `inputs` in `tasks.json` not loading on startup (did not work; finally resolved in 1.2.3).
 
 ## [1.0.6]
 
-- Storing selection of status bar items in workspace instead of global storage.
+- **Per-workspace selections** — a parameter's selected value is now stored in workspace state instead of global storage, so each workspace remembers its own choice.
+- Switched to a JSONC-aware editor when modifying `tasks.json`, preserving existing comments.
 
 ## [1.0.5]
 
-- Added setting to show the param names in the status bar.
+- Added a setting to show parameter names in front of their selected value in the status bar.
 
 ## [1.0.4]
 
-- Fixed multiple bugs with multi root workspaces.
-- Added Workspace picker for adding inputs by command.
-- Shortened command prefix for getting the selected value (`statusBarParam.getSelected.<name>` -> `statusBarParam.get.<name>`)
+### Added
+
+- Workspace-folder picker when adding a parameter, so you choose which folder's `tasks.json` it lands in.
+
+### Changed
+
+- Shortened the get-selected command prefix (`statusBarParam.getSelected.<name>` → `statusBarParam.get.<name>`).
+
+### Fixed
+
+- Multiple bugs with multi-root workspaces.
 
 ## [1.0.3]
 
-- Added multi root
+- Added multi-root workspace support — parameters are read from every workspace folder, not just the first.
 
 ## [1.0.2]
 
-- Added icon.
+- Added an extension icon.
 
 ## [1.0.1]
 
-- Updated Readme.
+- Updated the README.
 
 ## [1.0.0]
 
-- Initial release
+- **Initial release** — define a parameter as a `tasks.json` input and pick its value from a status-bar item, substituted into tasks via `${input:<id>}`. Includes a command to add a parameter through guided input-box prompts.

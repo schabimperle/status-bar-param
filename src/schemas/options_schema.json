@@ -30,7 +30,8 @@
                 }
             ],
             "default": "",
-            "description": "Set an initial selected value for the parameter. It must be one (or more in case of canPickMany=true) of the values to pick from. It can be a string or an array of strings."
+            "description": "Preselect a value (or values) the first time the parameter loads, before any selection has been stored. Reference each value exactly as it is identified among the values to pick from: a plain value by its string; a value with a display label by its `value` (the returned token, NOT the shown label); a named-output value by its `displayValue` label (it has no single string). Use a string for a single-select parameter, or an array of strings when `canPickMany` is true (a lone string still works and preselects one value). Examples: \"release\" (plain), \"Debug\" (the `value` of a labelled entry), \"GCC\" (the `displayValue` of a named entry), [\"Debug\", \"RelWithDebInfo\"] (multi-select).",
+            "examples": ["release", "GCC", ["Debug", "RelWithDebInfo"]]
         },
         "joinSeparator": {
             "type": "string",
