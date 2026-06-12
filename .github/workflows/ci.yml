@@ -1,14 +1,18 @@
 name: CI
 
-# Lints and tests on every push to the main branches and on pull requests,
-# so problems are caught before you cut a release tag.
+# Two tiers, so day-to-day develop pushes stay fast:
+#   * Fast tier (lint, format, unit tests) runs on every push and PR.
+#   * Heavy tier (integration, remote, package) runs only at the master boundary
+#     — master pushes, PRs, and manual dispatch — not on develop pushes. Those jobs
+#     download a VS Code build / provision an SSH server, so they cost minutes.
+# The release tag (release.yml) re-runs the heavy integration check as a publish
+# gate, so nothing ships without it even though develop skips it.
 
 on:
   push:
     branches: [master, develop]
   pull_request:
-  # the remote job below was previously its own workflow with a dispatch trigger;
-  # preserved here so it can still be run on demand
+  # lets the heavy tier be run on demand against a develop commit before merging
   workflow_dispatch:
 
 jobs:
@@ -66,6 +70,9 @@ jobs:
   # Runs headlessly under xvfb on a single OS (it just needs to download and boot
   # one VS Code build), so it's a dedicated job rather than part of the matrix.
   integration:
+    # Heavy tier — skip on develop pushes (keep them fast); run at the master
+    # boundary: master pushes, PRs, and manual dispatch.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -93,6 +100,8 @@ jobs:
   # that. Heavier than the other jobs (Remote-SSH install + server provisioning),
   # so it's a dedicated job rather than folded into one of the others.
   remote:
+    # Heavy tier — see the integration job; skipped on develop pushes.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -125,6 +134,8 @@ jobs:
   # valid and nothing essential is excluded) so a release can't break at publish
   # time. release.yml runs the real tag-triggered publish; this only builds the vsix.
   package:
+    # Heavy tier — see the integration job; skipped on develop pushes.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

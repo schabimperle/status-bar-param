@@ -16,7 +16,30 @@ permissions:
   contents: write # required to create the GitHub Release
 
 jobs:
+  # Advanced CI gate for the release: the real-host integration smoke test under
+  # xvfb (it downloads a VS Code build, so the tiered ci.yml skips it on develop).
+  # The release job needs this to pass, so a tag can't publish on green unit tests
+  # alone — this is the "advanced CI at the boundary" the tag triggers.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Integration smoke tests
+        run: xvfb-run -a npm run test:integration
+
   release:
+    needs: integration
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
