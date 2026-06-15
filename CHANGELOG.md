@@ -2,6 +2,16 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [1.9.1]
+
+### Changed
+
+- Refined the README demo GIF pacing: the advanced-options confirmation is tighter, the sample-task checkbox Space press is visible, and the final task output remains readable.
+
+### Internal
+
+- Updated dev tooling dependencies: `esbuild`, `eslint`, and `ovsx`.
+
 ## [1.9.0]
 
 ### Added
