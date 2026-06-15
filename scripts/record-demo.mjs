@@ -46,7 +46,9 @@ const PICK = 2;
 //             covers it — the card itself is the section break, so this stays short
 //   MIDBEAT   a breather WITHIN a section (not at a section boundary)
 //   KEY       between keypresses in a visible run (e.g. an ArrowDown glide)
-const BEAT = { READ: 1000, READ_LED: 550, RESULT: 1200, MIDBEAT: 1400, KEY: 260 };
+//   FINAL     terminal output at the end of the full demo; held longer because
+//             there is no following title card to give the result more screen time
+const BEAT = { READ: 1000, READ_LED: 550, RESULT: 1200, MIDBEAT: 1400, KEY: 260, FINAL: 5000 };
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -125,13 +127,14 @@ async function flowAdd(page) {
         await pause(BEAT.KEY);
     }
     await pause(500);
-    await page.keyboard.press('Space'); // toggle the "Add a sample task" checkbox (Space isn't badged)
+    await page.evaluate(() => window.__showNextBareSpace && window.__showNextBareSpace());
+    await page.keyboard.press('Space'); // toggle the "Add a sample task" checkbox
     // hold past the badge lifetime so the ArrowDown badge fully retires before the OK
     // gesture, keeping Shift+Tab as its own clean badge rather than trailing the arrows.
     await pause(1500);
     await page.keyboard.press('Shift+Tab'); // move focus from the list to the OK button
-    await pause(900);
-    await acceptQuick(page); // Enter activates the focused OK button, confirming the multi-select
+    await pause(120);
+    await page.keyboard.press('Enter'); // confirm the multi-select as one Shift+Tab -> Enter gesture
     // wait for the new status bar item to appear (file scanned), then a consistent beat
     await page.locator('.statusbar-item', { hasText: PARAM.values[0] }).first().waitFor({ state: 'visible', timeout: 15000 });
     await pause(BEAT.RESULT);
@@ -224,7 +227,7 @@ async function flowRunTask(page) {
     await pause(1200);
     await page.keyboard.press('Enter');
     // the task opens a terminal and echoes the value -- hold so it can be read
-    await pause(5500);
+    await pause(BEAT.FINAL);
 }
 
 // One guided demo covering all three use cases, with numbered title cards

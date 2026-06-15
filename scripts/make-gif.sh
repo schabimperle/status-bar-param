@@ -17,7 +17,9 @@
 #   * gifsicle -O3 for inter-frame optimization, plus an optional lossy pass.
 #
 # Env knobs: COLORS (default 128), LOSSY (gifsicle --lossy, default 0 = lossless;
-# set e.g. LOSSY=30 to trade some edge sharpness for a smaller file).
+# set e.g. LOSSY=30 to trade some edge sharpness for a smaller file), TAIL_PAD
+# (default 0.1s; cloned after decimation so the GIF can express the recorded
+# final still frame instead of ending it with a near-zero delay).
 #
 # Encoder: the tuned ffmpeg pipeline by default, because it preserves the recorder's
 # VARIABLE per-frame delays (a long pause stays a long frame) — the demo's pacing
@@ -37,6 +39,7 @@ WIDTH="${3:-900}"
 FPS="${4:-15}"
 COLORS="${COLORS:-128}"
 LOSSY="${LOSSY:-0}"
+TAIL_PAD="${TAIL_PAD:-0.1}"
 
 # drop frames that barely differ from the previous one (tuned for slow UI motion)
 DECIMATE="mpdecimate=hi=64*8:lo=64*4:frac=0.1"
@@ -51,16 +54,16 @@ if [ "${USE_GIFSKI:-0}" = 1 ] && command -v gifski >/dev/null; then
     echo ">> WARNING: USE_GIFSKI=1 — replays at a uniform ${FPS}fps, FLATTENING the recorded pauses." >&2
     echo ">> extracting frames (fps=$FPS, width=$WIDTH) ..."
     ffmpeg -hide_banner -loglevel error -i "$IN" \
-        -vf "fps=$FPS,$DECIMATE,scale=$WIDTH:-1:flags=lanczos" -fps_mode vfr "$tmp/frame_%05d.png"
+        -vf "fps=$FPS,$DECIMATE,tpad=stop_mode=clone:stop_duration=$TAIL_PAD,scale=$WIDTH:-1:flags=lanczos" -fps_mode vfr "$tmp/frame_%05d.png"
     echo ">> encoding GIF with gifski ..."
     gifski -o "$OUT" --fps "$FPS" --quality 90 "$tmp"/frame_*.png
 else
     echo ">> ffmpeg pipeline (decimate + ${COLORS}-colour palette, no dither) ..."
     # per-clip palette over the decimated stream; no dithering for crisp flat UI
     ffmpeg -y -hide_banner -loglevel error -i "$IN" \
-        -vf "fps=$FPS,$DECIMATE,scale=$WIDTH:-1:flags=lanczos,palettegen=max_colors=$COLORS:stats_mode=full" "$tmp/palette.png"
+        -vf "fps=$FPS,$DECIMATE,tpad=stop_mode=clone:stop_duration=$TAIL_PAD,scale=$WIDTH:-1:flags=lanczos,palettegen=max_colors=$COLORS:stats_mode=full" "$tmp/palette.png"
     ffmpeg -y -hide_banner -loglevel error -i "$IN" -i "$tmp/palette.png" \
-        -lavfi "fps=$FPS,$DECIMATE,scale=$WIDTH:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=none:diff_mode=rectangle" \
+        -lavfi "fps=$FPS,$DECIMATE,tpad=stop_mode=clone:stop_duration=$TAIL_PAD,scale=$WIDTH:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=none:diff_mode=rectangle" \
         -fps_mode vfr "$OUT"
 fi
 

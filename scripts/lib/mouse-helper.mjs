@@ -97,6 +97,7 @@ const HELPER = String.raw`
     let lastT = 0;
     let curBadge = null;   // the live badge element
     let curGroup = [];     // labels accumulated in the live badge
+    let showNextBareSpace = false;
     const HOLD = 1300;     // how long a badge stays after the last press
     const GAP = 1300;      // presses closer than this group into one badge (one action)
     const SPECIAL = {
@@ -119,12 +120,12 @@ const HELPER = String.raw`
     document.addEventListener('keydown', (e) => {
       const k = e.key;
       if (k === 'Control' || k === 'Shift' || k === 'Alt' || k === 'Meta') return;
-      // A bare Space/Backspace/Delete is always part of typing in this demo
-      // (palette queries, editor text), never a standalone gesture -- flashing
-      // it as a "Space"/"Del" badge reads as gibberish next to F1/Enter, so drop
-      // it. With a modifier held (Ctrl+Backspace, ...) it still shows.
+      // A bare Space/Backspace/Delete is normally part of typing in this demo
+      // (palette queries, editor text), not a standalone gesture. The recorder can
+      // opt into showing exactly one bare Space when it toggles a checkbox.
       if (!e.ctrlKey && !e.altKey && !e.metaKey &&
-          (k === ' ' || k === 'Backspace' || k === 'Delete')) return;
+          (k === 'Backspace' || k === 'Delete')) return;
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && k === ' ' && !showNextBareSpace) return;
       const mods = [];
       if (e.ctrlKey) mods.push('Ctrl');
       if (e.altKey) mods.push('Alt');
@@ -133,6 +134,7 @@ const HELPER = String.raw`
       const special = SPECIAL[k] || (/^F\d+$/.test(k) ? k : null) || (k.length > 1 ? k : null);
       if (mods.length === 0 && !special) return;   // plain typing: ignore
       const label = (mods.length ? mods.join(' + ') + ' + ' : '') + (special || k.toUpperCase());
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && k === ' ') showNextBareSpace = false;
       const now = (window.performance && performance.now) ? performance.now() : Date.now();
       // a press after a long gap is a new action -> retire the old badge downward
       if (!curBadge || now - lastT > GAP || curGroup.length >= 10) {
@@ -163,6 +165,7 @@ const HELPER = String.raw`
       document.querySelectorAll('.__keys').forEach((b) => b.remove());
       curBadge = null; curGroup = []; clearTimeout(hideT);
     };
+    window.__showNextBareSpace = () => { showNextBareSpace = true; };
     window.__hideTitle = () => {
       title.classList.remove('__show');
       // bring the cursor back only after the heading has fully faded out
