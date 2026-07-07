@@ -168,6 +168,9 @@ export async function onSelect(param: Param) {
         }
         return;
     }
+    // the picker forced a fresh resolution; keep the tooltip's value list in sync with
+    // it (a command param's output may have changed since the last silent update())
+    param.rememberResolvedValues(values);
     const oldSelections = param.loadSelectedValues() ?? [];
     // preselect single selection
     if (!param.opts.canPickMany && oldSelections.length === 1) {

@@ -382,6 +382,145 @@ describe('Param.setText rendering', () => {
     });
 });
 
+describe('Param.buildTooltip (hover)', () => {
+    it('renders a compact HTML title followed by a value table', async () => {
+        const { item } = setup({ values: [A, B], stored: { [COMMAND]: ['a'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md).toBeInstanceOf(vscode.MarkdownString);
+        expect(md.supportHtml).toBe(true);
+        expect(md.supportThemeIcons).not.toBe(true);
+        // Raw HTML avoids Markdown tables' mandatory header row and keeps the title out of table row spacing.
+        expect(md.value).toContain('<table');
+        expect(md.value).toContain('<tbody>');
+        expect(md.value).toContain('codicon codicon-array');
+        expect(md.value).toContain('<table width="100%"><tbody><tr><td><h3>myId</h3></td><td align="right"><h3>&nbsp;&nbsp;&nbsp;');
+        expect(md.value).toContain('<span class="codicon codicon-array"></span></h3></td></tr></tbody></table><table>');
+        expect(md.value).not.toContain('|:-:|:--|');
+        expect(md.value).not.toContain('### ');
+        // active row: filled marker; unselected: outline marker
+        expect(md.value).toContain('codicon codicon-circle-large-filled');
+        expect(md.value).toContain('>a</td>');
+        expect(md.value).toContain('codicon codicon-circle-large-outline');
+        expect(md.value).toContain('>b</td>');
+        // the marker conveys the selection, so no redundant "Selected:" line
+        expect(md.value).not.toContain('Selected:');
+    });
+
+    it('uses a checked marker for the active value in a multi-select param', async () => {
+        const { item } = setup({ values: [A, B], opts: { canPickMany: true }, stored: { [COMMAND]: ['a'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('codicon codicon-pass-filled'); // multi-select: checked dot, not radio
+        expect(md.value).not.toContain('codicon codicon-circle-large-filled');
+        expect(md.value).toContain('codicon codicon-circle-large-outline');
+    });
+
+    it('escapes HTML-sensitive characters and neutralizes theme-icon syntax in a value cell', async () => {
+        const tricky: DisplayableValue = { value: 'raw', displayValue: 'a|b <tag> & "quote" $(zap)' };
+        const { item } = setup({ values: [tricky], opts: { canPickMany: true } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('a|b'); // raw pipe is safe inside an HTML cell
+        expect(md.value).toContain('&lt;tag&gt;');
+        expect(md.value).toContain('&amp;');
+        expect(md.value).toContain('&quot;quote&quot;');
+        expect(md.value).not.toContain('$(zap)'); // icon sequence broken (zero-width space inserted)
+    });
+
+    it('shows the status-bar item tooltip as a MarkdownString mirrored by getTooltip()', async () => {
+        const { param, item } = setup();
+        await flush();
+        expect(item.tooltip).toBeInstanceOf(vscode.MarkdownString);
+        expect(param.getTooltip()).toBe(item.tooltip);
+    });
+
+    it('builds a non-empty tooltip synchronously in the constructor (before update resolves)', () => {
+        // an empty MarkdownString suppresses VS Code's hover entirely, so the tooltip
+        // must already carry content right after construction, not only after update()
+        const { param } = setup();
+        expect(param.getTooltip().value.trim().length).toBeGreaterThan(0);
+    });
+
+    it('marks nothing when a multi-select has values but no selection', async () => {
+        const { item } = setup({ opts: { canPickMany: true } }); // multi-select seeds nothing
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).not.toContain('codicon codicon-pass-filled');
+        expect(md.value).not.toContain('codicon codicon-circle-large-filled');
+        expect(md.value).toContain('codicon codicon-circle-large-outline'); // every row unselected
+    });
+
+    it('falls back to "No selection" only when there is no value list', async () => {
+        const { item } = setup({ unavailable: true }); // command param, nothing resolved
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('<em>No selection</em>');
+    });
+
+    it('does not clutter the tooltip with reference strings', async () => {
+        const { item } = setup();
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        // references live in the Copy Reference command, not the hover (kept uncluttered)
+        expect(md.value).not.toContain('${input:');
+        expect(md.value).not.toContain('${command:');
+    });
+
+    it('omits the value list (without forcing a run) when values are unavailable', async () => {
+        const { param, item, delegate } = setup({ unavailable: true, stored: { [COMMAND]: ['kept'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        // stored selection still shown, but no resolvable value list (so no row markers)
+        expect(md.value).toContain('Selected: ');
+        expect(md.value).not.toContain('codicon codicon-circle-large-outline');
+        // hovering/rendering must never force a command re-run
+        const forced = (delegate.getValues as jest.Mock).mock.calls.some((call) => call[0] === true);
+        expect(forced).toBe(false);
+        expect(param.getTooltip()).toBeInstanceOf(vscode.MarkdownString);
+    });
+
+    it('truncates a long value list to the cap and notes the remainder', async () => {
+        const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
+        const { item } = setup({ values: many, opts: { canPickMany: true } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('v0');
+        expect(md.value).toContain('v14'); // 15th value (0-indexed) still shown
+        expect(md.value).not.toContain('v15'); // 16th is cut
+        expect(md.value).toContain('…and 5 more');
+    });
+
+    it('keeps an active value visible when a long value list is truncated', async () => {
+        const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
+        const { item } = setup({ values: many, stored: { [COMMAND]: ['v19'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).not.toContain('>v0</td>');
+        expect(md.value).toContain('…5 more above');
+        expect(md.value).toContain('codicon codicon-circle-large-filled');
+        expect(md.value).toContain('>v19</td>');
+    });
+
+    it('renders a blank display value as an explicit (empty) placeholder', async () => {
+        const blank: DisplayableValue = { value: 'raw', displayValue: '  ' };
+        const { item } = setup({ values: [blank], opts: { canPickMany: true } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('(empty)');
+    });
+
+    it('reflects a picker-driven refresh via rememberResolvedValues()', async () => {
+        const { param, item } = setup({ values: [A], opts: { canPickMany: true } });
+        await flush();
+        // simulate the picker resolving a fresh, larger value set
+        param.rememberResolvedValues([A, B, { value: 'c', displayValue: 'c' }]);
+        param.setText([]);
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('>c</td>');
+    });
+});
+
 describe('Param.loadSelectedValues back-compat', () => {
     it('migrates a pre-1.3.1 single string value stored under the old key', async () => {
         const oldKey = `${Strings.COMMAND_SELECT}.myId`;

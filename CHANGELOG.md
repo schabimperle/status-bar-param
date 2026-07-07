@@ -2,6 +2,20 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [1.10.0]
+
+### Added
+
+- Rich status-bar and tree hover popups for parameters, showing the parameter name, type icon, resolved values, selection markers, and long-list truncation.
+
+### Changed
+
+- Command-backed parameter hovers reuse the last resolved value list instead of re-running commands on hover, while picker refreshes keep the hover list up to date.
+
+### Internal
+
+- Updated runtime and dev dependencies via Dependabot: `form-data`, `undici`, `actions/checkout`, `@typescript-eslint/eslint-plugin`, `eslint`, `ovsx`, `playwright`, and `prettier`.
+
 ## [1.9.1]
 
 ### Changed

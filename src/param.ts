@@ -1,4 +1,4 @@
-import { commands, Disposable, Range, StatusBarAlignment, StatusBarItem, TextDocument, ThemeColor, ThemeIcon, window, workspace } from 'vscode';
+import { commands, Disposable, MarkdownString, Range, StatusBarAlignment, StatusBarItem, TextDocument, ThemeColor, ThemeIcon, window, workspace } from 'vscode';
 import * as jsonc from 'jsonc-parser';
 import { JSONPath } from 'jsonc-parser';
 import { Strings } from './strings';
@@ -6,6 +6,28 @@ import { JsonFile } from './jsonFile';
 import { ValuesDelegate } from './valuesDelegate';
 import { DisplayableValue, Options } from './schemas';
 import { ExtensionConfig } from './config';
+
+// Escape user text for raw HTML rendered via MarkdownString.supportHtml. Break any
+// `$(icon)` theme-icon sequence first in case supportThemeIcons is ever enabled on
+// this tooltip again, then HTML-escape and flatten newlines (table cells can't contain one).
+function escapeTooltipHtml(text: string): string {
+    return text
+        .replace(/\$\(/g, '$\u200B(')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/[\r\n]+/g, ' ');
+}
+
+function iconSpan(icon: string): string {
+    return `<span class="codicon codicon-${icon}"></span>`;
+}
+
+function indentedIconSpan(icon: string): string {
+    return `&nbsp;${iconSpan(icon)}&nbsp;&nbsp;`;
+}
 
 /**
  * A single status-bar parameter: owns its `StatusBarItem`, registers the
@@ -19,6 +41,9 @@ export class Param {
     // out. `input.foreground` was wrong here — in many themes it is *brighter* than
     // the default, making empty params look more prominent than selected ones.
     private static readonly COLOR_INACTIVE = new ThemeColor('descriptionForeground');
+    // cap the value list in the hover tooltip so a command param with hundreds of
+    // stdout lines doesn't render an unbounded panel; the rest collapse to a count
+    private static readonly MAX_TOOLTIP_VALUES = 15;
     private readonly statusBarItem: StatusBarItem;
     private readonly disposables: Disposable[] = [];
     // bumped on each update() so a late-resolving refresh can detect a newer one
@@ -33,6 +58,14 @@ export class Param {
     // the display strings of the current selection (what the status bar shows),
     // surfaced via getSelectionText for the tree/quick-pick without re-resolving
     private displayText: string[] = [];
+    // the values last resolved by update()/a picker, kept only to render the hover
+    // tooltip's value list — reading it never re-runs a command (undefined until the
+    // first successful resolution; a transient unavailable result keeps the old list)
+    private lastResolvedValues: DisplayableValue[] | undefined;
+    // the current hover tooltip (status-bar item + tree node), rebuilt on every
+    // setText. An empty placeholder until the first render (don't reference this.id
+    // in the field initializer — it may run before the parameter property is set).
+    private tooltip: MarkdownString = new MarkdownString('');
 
     constructor(
         public readonly id: string,
@@ -48,7 +81,12 @@ export class Param {
     ) {
         // create status bar item
         this.statusBarItem = window.createStatusBarItem(StatusBarAlignment.Left, this.priority);
-        this.statusBarItem.tooltip = this.id;
+        // build a real, non-empty tooltip up front rather than leaving the empty
+        // placeholder until the first async update() lands: VS Code's hover service
+        // shows nothing for an empty MarkdownString and can cache that empty result,
+        // so a hover in that window would silently produce no popup at all
+        this.tooltip = this.buildTooltip([]);
+        this.statusBarItem.tooltip = this.tooltip;
         this.disposables.push(this.statusBarItem);
         this.statusBarItem.command = {
             title: 'Select',
@@ -112,6 +150,12 @@ export class Param {
         // a newer update() began while getValues() was in flight: let it win
         if (generation !== this.updateGeneration) {
             return;
+        }
+        // remember the resolved list for the tooltip. Guard on !== undefined, not
+        // truthiness: an empty array is a valid result (clears the selection below),
+        // whereas undefined means "unavailable" and should keep the previous list.
+        if (values !== undefined) {
+            this.lastResolvedValues = values;
         }
         // undefined: values can't be determined now (untrusted workspace, or a
         // failing command) — keep the stored selection, restored once available
@@ -201,6 +245,83 @@ export class Param {
             this.statusBarItem.color = undefined;
         }
         this.statusBarItem.text = text;
+        // rebuild the hover tooltip from the same display selection (and the last
+        // resolved value list); the tree node reads it via getTooltip()
+        this.tooltip = this.buildTooltip(selection);
+        this.statusBarItem.tooltip = this.tooltip;
+    }
+
+    /**
+     * Build the hover tooltip as raw, sanitized HTML. Real HTML tables avoid the
+     * mandatory Markdown table header row that created a large visual gap between the
+     * parameter name and its values. The title and value list are separate tables so
+     * the heading can keep the parameter type icon right-aligned without squeezing the
+     * selectable values. User text is HTML-escaped before insertion. The value list is
+     * drawn from lastResolvedValues, so hovering never re-runs a command.
+     */
+    private buildTooltip(selection: string[]): MarkdownString {
+        const md = new MarkdownString();
+        md.supportHtml = true;
+        const rows: string[] = [];
+
+        // blank/whitespace-only selection counts as none, matching the status bar.
+        // Only what update()/the picker already resolved is used — never forces a run.
+        const active = selection.filter((value) => value.trim() !== '');
+        const values = this.lastResolvedValues;
+        if (values && values.length > 0) {
+            const multi = this.opts.canPickMany === true;
+            const activeIndex = values.findIndex((value) => active.includes(value.displayValue));
+            const start = activeIndex >= Param.MAX_TOOLTIP_VALUES ? Math.min(activeIndex, Math.max(0, values.length - Param.MAX_TOOLTIP_VALUES)) : 0;
+            const shown = values.slice(start, start + Param.MAX_TOOLTIP_VALUES);
+            if (start > 0) {
+                rows.push(`<tr><td></td><td><em>…${start} more above</em></td></tr>`);
+            }
+            for (const value of shown) {
+                const isActive = active.includes(value.displayValue);
+                // matched large glyphs so all markers read as the same size: a filled dot
+                // (single-select radio) or a checked dot (multi-select) when active, an
+                // outline dot when not. pass-filled matches the large circles' size, so the
+                // checked marker stays consistent with them (codicons only come in
+                // small/standard/large — there is no size between standard and large)
+                const marker = isActive ? (multi ? 'pass-filled' : 'circle-large-filled') : 'circle-large-outline';
+                // a shell command can emit a blank line; show an explicit placeholder
+                // rather than an invisible, confusing empty row. The placeholder is a
+                // fixed, safe literal, so only real user values are run through the escaper.
+                const cell = value.displayValue.trim() === '' ? '(empty)' : escapeTooltipHtml(value.displayValue);
+                rows.push(`<tr><td>${indentedIconSpan(marker)}</td><td>${cell}</td></tr>`);
+            }
+            const remaining = values.length - start - shown.length;
+            if (remaining > 0) {
+                const label = start === 0 ? `…and ${remaining} more` : `…${remaining} more below`;
+                rows.push(`<tr><td></td><td><em>${label}</em></td></tr>`);
+            }
+        } else if (active.length > 0) {
+            // no resolvable value list (command param untrusted / failing / not yet run):
+            // still surface the current selection so the hover isn't empty
+            rows.push(`<tr><td></td><td>Selected: ${escapeTooltipHtml(active.join(' '))}</td></tr>`);
+        } else {
+            rows.push('<tr><td></td><td><em>No selection</em></td></tr>');
+        }
+        // Minimal bottom padding inside VS Code's fixed hover margins.
+        rows.push('<tr><td></td><td></td></tr>');
+        md.appendMarkdown(
+            `<table width="100%"><tbody><tr><td><h3>${escapeTooltipHtml(this.id)}</h3></td><td align="right"><h3>&nbsp;&nbsp;&nbsp;${iconSpan(this.getIcon().id)}</h3></td></tr></tbody></table><table><tbody>${rows.join('')}</tbody></table>`,
+        );
+        return md;
+    }
+
+    /** The current hover tooltip, for the tree node to mirror the status-bar item. */
+    getTooltip(): MarkdownString {
+        return this.tooltip;
+    }
+
+    /**
+     * Remember a freshly resolved value list (e.g. from the picker, which forces a
+     * re-run) so the tooltip's value list reflects it instead of lagging behind the
+     * last silent update(). Takes a copy — callers reorder the array in place.
+     */
+    rememberResolvedValues(values: DisplayableValue[]) {
+        this.lastResolvedValues = [...values];
     }
 
     // remove this param's persisted selection (its values outlive a plain delete otherwise)

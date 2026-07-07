@@ -49,14 +49,18 @@ describe('ParameterProvider.getTreeItem', () => {
     });
 
     it('renders a Param node', () => {
+        const tooltip = new vscode.MarkdownString('$(array) myId');
         const param = {
             id: 'myId',
             getSelectionText: () => 'selected',
+            getTooltip: () => tooltip,
             getIcon: () => new vscode.ThemeIcon('array'),
         } as unknown as Param;
         const item = new ParameterProvider([], new vscode.EventEmitter()).getTreeItem(param);
         expect(item.label).toBe('myId');
         expect(item.description).toBe('selected');
+        // the node mirrors the status-bar item's hover tooltip
+        expect(item.tooltip).toBe(tooltip);
         expect(item.contextValue).toBe('Param');
         expect(item.command?.command).toBe(Strings.COMMAND_SELECT);
     });

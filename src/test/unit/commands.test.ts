@@ -209,6 +209,7 @@ function fakeParam(over: Partial<Record<string, unknown>>): Param {
         getValues: jest.fn(),
         loadSelectedValues: jest.fn(() => []),
         storeSelectedValues: jest.fn(),
+        rememberResolvedValues: jest.fn(),
         ...over,
     } as unknown as Param;
 }
