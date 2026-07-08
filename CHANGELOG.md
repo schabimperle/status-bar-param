@@ -6,7 +6,7 @@ All notable changes to the "status-bar-param" extension will be documented in th
 
 ### Added
 
-- Rich status-bar and tree hover popups for parameters, showing the parameter name, type icon, resolved values, selection markers, and long-list truncation.
+- Rich status-bar and tree hover popups for parameters, showing the parameter name, type icon, resolved values, and selection markers. Long value lists are truncated while keeping the active selection in view, and a multi-select whose selection reaches past the visible list notes how many values are selected in total.
 
 ### Changed
 

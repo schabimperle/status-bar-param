@@ -416,7 +416,7 @@ describe('Param.buildTooltip (hover)', () => {
         expect(md.value).toContain('codicon codicon-circle-large-outline');
     });
 
-    it('escapes HTML-sensitive characters and neutralizes theme-icon syntax in a value cell', async () => {
+    it('escapes HTML-sensitive characters in a value cell, leaving theme-icon syntax verbatim', async () => {
         const tricky: DisplayableValue = { value: 'raw', displayValue: 'a|b <tag> & "quote" $(zap)' };
         const { item } = setup({ values: [tricky], opts: { canPickMany: true } });
         await flush();
@@ -425,7 +425,7 @@ describe('Param.buildTooltip (hover)', () => {
         expect(md.value).toContain('&lt;tag&gt;');
         expect(md.value).toContain('&amp;');
         expect(md.value).toContain('&quot;quote&quot;');
-        expect(md.value).not.toContain('$(zap)'); // icon sequence broken (zero-width space inserted)
+        expect(md.value).toContain('$(zap)'); // supportThemeIcons is off, so `$(…)` renders literally
     });
 
     it('shows the status-bar item tooltip as a MarkdownString mirrored by getTooltip()', async () => {
@@ -508,6 +508,51 @@ describe('Param.buildTooltip (hover)', () => {
         await flush();
         const md = item.tooltip as vscode.MarkdownString;
         expect(md.value).toContain('(empty)');
+    });
+
+    it('never marks a blank-display selection active, matching the greyed-out status bar', async () => {
+        // a selected value whose display is blank is treated as "no selection" by the status
+        // bar; the hover must agree — no filled/checked marker on its "(empty)" row
+        const blank: DisplayableValue = { value: 'raw', displayValue: '  ' };
+        const { item } = setup({ values: [blank], opts: { canPickMany: true }, stored: { [COMMAND]: ['raw'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('(empty)');
+        expect(md.value).not.toContain('codicon codicon-pass-filled');
+        expect(md.value).not.toContain('codicon codicon-circle-large-filled');
+        expect(md.value).not.toContain('selected</strong>'); // and no count note either
+    });
+
+    it('marks the selected value by its canonical value, not a shared display label', async () => {
+        // two entries share a displayValue but have distinct canonical values; selecting
+        // one must mark only that row, never both (match by value, not displayValue)
+        const dupA: DisplayableValue = { value: 'x1', displayValue: 'dup' };
+        const dupB: DisplayableValue = { value: 'x2', displayValue: 'dup' };
+        const { item } = setup({ values: [dupA, dupB], stored: { [COMMAND]: ['x1'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect((md.value.match(/circle-large-filled/g) ?? []).length).toBe(1); // exactly one row active
+        expect((md.value.match(/circle-large-outline/g) ?? []).length).toBe(1);
+    });
+
+    it('notes the full selection count when selected values fall outside the truncation window', async () => {
+        // multi-select with selections at both ends of a long list: the window can only
+        // show one end, so the hover must state the total rather than understate it
+        const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
+        const { item } = setup({ values: many, opts: { canPickMany: true }, stored: { [COMMAND]: ['v0', 'v19'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('2 selected');
+        expect(md.value).toContain('some outside this list');
+        expect(md.value).not.toContain('>v19</td>'); // v19 is beyond the window
+    });
+
+    it('omits the selection-count note when every selected value is visible', async () => {
+        const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
+        const { item } = setup({ values: many, opts: { canPickMany: true }, stored: { [COMMAND]: ['v1', 'v2'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).not.toContain('selected</strong>'); // both v1 and v2 are within the window
     });
 
     it('reflects a picker-driven refresh via rememberResolvedValues()', async () => {

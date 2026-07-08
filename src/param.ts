@@ -7,12 +7,11 @@ import { ValuesDelegate } from './valuesDelegate';
 import { DisplayableValue, Options } from './schemas';
 import { ExtensionConfig } from './config';
 
-// Escape user text for raw HTML rendered via MarkdownString.supportHtml. Break any
-// `$(icon)` theme-icon sequence first in case supportThemeIcons is ever enabled on
-// this tooltip again, then HTML-escape and flatten newlines (table cells can't contain one).
+// Escape user text for raw HTML rendered via MarkdownString.supportHtml, then flatten
+// newlines (table cells can't contain one). No `$(icon)` neutralization: supportThemeIcons
+// is never enabled on this tooltip, so a literal `$(\u2026)` renders verbatim as intended.
 function escapeTooltipHtml(text: string): string {
     return text
-        .replace(/\$\(/g, '$\u200B(')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -155,7 +154,9 @@ export class Param {
         // truthiness: an empty array is a valid result (clears the selection below),
         // whereas undefined means "unavailable" and should keep the previous list.
         if (values !== undefined) {
-            this.lastResolvedValues = values;
+            // copy for the same reason rememberResolvedValues does: callers reorder the
+            // resolved list in place, which must not disturb the tooltip's snapshot
+            this.lastResolvedValues = [...values];
         }
         // undefined: values can't be determined now (untrusted workspace, or a
         // failing command) — keep the stored selection, restored once available
@@ -267,17 +268,34 @@ export class Param {
         // blank/whitespace-only selection counts as none, matching the status bar.
         // Only what update()/the picker already resolved is used — never forces a run.
         const active = selection.filter((value) => value.trim() !== '');
+        // markers and the truncation window key off the canonical stored value, not the
+        // display label: two values can share a displayValue, so matching by label would
+        // mark (and anchor the window on) the wrong — or several — rows. loadSelectedValues()
+        // is the authoritative selection identity and never re-runs a command. A blank/
+        // whitespace display value never counts as active, matching the status bar (which
+        // greys such a selection out as "none") — otherwise the "(empty)" row would carry a
+        // filled marker the status bar contradicts.
+        const selectedRaw = this.loadSelectedValues() ?? [];
+        const isSelected = (value: DisplayableValue) => value.displayValue.trim() !== '' && selectedRaw.includes(value.value);
         const values = this.lastResolvedValues;
         if (values && values.length > 0) {
             const multi = this.opts.canPickMany === true;
-            const activeIndex = values.findIndex((value) => active.includes(value.displayValue));
+            const activeCount = values.filter(isSelected).length;
+            const activeIndex = values.findIndex(isSelected);
             const start = activeIndex >= Param.MAX_TOOLTIP_VALUES ? Math.min(activeIndex, Math.max(0, values.length - Param.MAX_TOOLTIP_VALUES)) : 0;
             const shown = values.slice(start, start + Param.MAX_TOOLTIP_VALUES);
+            // the window can't fit every selection of a widely-spread multi-select; note the
+            // full count when some selected values fall outside it, so the visible markers
+            // don't understate the selection (the picker still lists all of them).
+            const selectedShown = shown.filter(isSelected).length;
+            if (multi && activeCount > selectedShown) {
+                rows.push(`<tr><td></td><td><strong>${activeCount} selected</strong>, some outside this list</td></tr>`);
+            }
             if (start > 0) {
                 rows.push(`<tr><td></td><td><em>…${start} more above</em></td></tr>`);
             }
             for (const value of shown) {
-                const isActive = active.includes(value.displayValue);
+                const isActive = isSelected(value);
                 // matched large glyphs so all markers read as the same size: a filled dot
                 // (single-select radio) or a checked dot (multi-select) when active, an
                 // outline dot when not. pass-filled matches the large circles' size, so the
