@@ -583,14 +583,16 @@ export class JsonFile implements Disposable {
     // reference each output via its `${command:…get.<id>.<key>}` instead. Shared by the
     // text-edit and config write paths.
     private static buildSampleTask(id: string, secondaryKeys: string[] = []) {
-        const reference =
-            secondaryKeys.length > 0 ? secondaryKeys.map((key) => `${key}=\${command:${Strings.getCommandId(id)}.${key}}`).join(' ') : `\${input:${id}}`;
+        // Each reference gets its OWN `args` element: VS Code substitutes one to exactly one
+        // argument, so this is the shape a real task should copy — and it keeps a value with
+        // spaces intact, which appending to the command string would not. `echo` stays a
+        // shell builtin (hence type `shell`), so the sample runs on every platform.
+        const args = secondaryKeys.length > 0 ? secondaryKeys.map((key) => `${key}=\${command:${Strings.getCommandId(id)}.${key}}`) : [`\${input:${id}}`];
         return {
             label: `echo value of ${id}`,
             type: 'shell',
-            // single-quote so the JSON needs no escaped " (which would distract
-            // from the `${...}` reference)
-            command: `echo 'Current value of ${id} is ${reference}.'`,
+            command: 'echo',
+            args,
             problemMatcher: [],
         };
     }

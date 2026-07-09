@@ -196,15 +196,25 @@ describe('JsonFile.addParam', () => {
         expect(writtenRaw()).toMatch(/\/\/ Sample task demonstrating the use of the 'greeting' parameter\.\n\s*\{/);
     });
 
+    it('passes the parameter reference as its own `args` element, not appended to the command', async () => {
+        const file = makeFile('/ws/.vscode/tasks.json');
+        await file.addParam('greeting', ['hi'], true);
+
+        const tasks = written().tasks as Array<{ command: string; args: string[] }>;
+        // one element == one argument, so a value containing spaces survives intact
+        expect(tasks[0].command).toBe('echo');
+        expect(tasks[0].args).toEqual(['${input:greeting}']);
+    });
+
     it('builds a named-value sample task that references each per-key command, not the keyless input', async () => {
         const file = makeFile('/ws/.vscode/tasks.json');
         await file.addParam('compiler', [{ displayValue: 'gcc', value: { cc: 'gcc', cxx: 'g++' } }], true);
 
-        const tasks = written().tasks as Array<{ command: string }>;
-        // a named value has no keyless value, so the demo references the per-key commands
-        expect(tasks[0].command).toContain('${command:statusBarParam.get.compiler.cc}');
-        expect(tasks[0].command).toContain('${command:statusBarParam.get.compiler.cxx}');
-        expect(tasks[0].command).not.toContain('${input:compiler}');
+        const tasks = written().tasks as Array<{ command: string; args: string[] }>;
+        // a named value has no keyless value, so the demo references the per-key commands --
+        // one `args` element each, so a key's value can never be word-split into two arguments
+        expect(tasks[0].args).toEqual(['cc=${command:statusBarParam.get.compiler.cc}', 'cxx=${command:statusBarParam.get.compiler.cxx}']);
+        expect(tasks[0].args.join(' ')).not.toContain('${input:compiler}');
     });
 
     it("keeps the file's existing indentation (no tabs, consistent levels)", async () => {
@@ -792,7 +802,7 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
             expect(update).not.toHaveBeenCalledWith('version', expect.anything(), expect.anything());
             expect(update).toHaveBeenCalledWith(
                 'tasks',
-                [...existingTasks, expect.objectContaining({ label: 'echo value of myId', type: 'shell' })],
+                [...existingTasks, expect.objectContaining({ label: 'echo value of myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
                 vscode.ConfigurationTarget.Global,
             );
             expect(update).toHaveBeenCalledWith('inputs', [...existingInputs, expect.objectContaining({ id: 'myId' })], vscode.ConfigurationTarget.Global);
@@ -813,7 +823,7 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
 
             expect(update).toHaveBeenCalledWith(
                 'tasks',
-                [expect.objectContaining({ label: 'echo value of myId', type: 'shell' })],
+                [expect.objectContaining({ label: 'echo value of myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
                 vscode.ConfigurationTarget.Global,
             );
             expect(info).toHaveBeenCalled();
