@@ -802,7 +802,7 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
             expect(update).not.toHaveBeenCalledWith('version', expect.anything(), expect.anything());
             expect(update).toHaveBeenCalledWith(
                 'tasks',
-                [...existingTasks, expect.objectContaining({ label: 'echo value of myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
+                [...existingTasks, expect.objectContaining({ label: 'sample task using myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
                 vscode.ConfigurationTarget.Global,
             );
             expect(update).toHaveBeenCalledWith('inputs', [...existingInputs, expect.objectContaining({ id: 'myId' })], vscode.ConfigurationTarget.Global);
@@ -823,7 +823,7 @@ describe('JsonFile user tasks (vscode-userdata) I/O', () => {
 
             expect(update).toHaveBeenCalledWith(
                 'tasks',
-                [expect.objectContaining({ label: 'echo value of myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
+                [expect.objectContaining({ label: 'sample task using myId', type: 'shell', command: 'echo', args: ['${input:myId}'] })],
                 vscode.ConfigurationTarget.Global,
             );
             expect(info).toHaveBeenCalled();

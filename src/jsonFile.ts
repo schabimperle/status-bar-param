@@ -589,7 +589,10 @@ export class JsonFile implements Disposable {
         // shell builtin (hence type `shell`), so the sample runs on every platform.
         const args = secondaryKeys.length > 0 ? secondaryKeys.map((key) => `${key}=\${command:${Strings.getCommandId(id)}.${key}}`) : [`\${input:${id}}`];
         return {
-            label: `echo value of ${id}`,
+            // named for what it demonstrates, not for the command it happens to run: the
+            // point of the task is the parameter, and users routinely swap `echo` for a
+            // real build step while keeping the label
+            label: `sample task using ${id}`,
             type: 'shell',
             command: 'echo',
             args,

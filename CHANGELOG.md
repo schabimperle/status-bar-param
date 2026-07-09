@@ -12,7 +12,7 @@ All notable changes to the "status-bar-param" extension will be documented in th
 ### Changed
 
 - Command-backed parameter hovers reuse the last resolved value list instead of re-running commands on hover, while picker refreshes keep the hover list up to date.
-- The sample task the add-parameter wizard scaffolds now passes the parameter through the task's `args` array instead of appending it to the command string, so it demonstrates the substitution shape a real task should use, and a selected value containing spaces stays one argument.
+- The sample task the add-parameter wizard scaffolds now passes the parameter through the task's `args` array instead of appending it to the command string, so it demonstrates the substitution shape a real task should use, and a selected value containing spaces stays one argument. It is also labelled `sample task using <id>` rather than `echo value of <id>`, which stays accurate once its `echo` is swapped for a real command.
 
 ### Internal
 
