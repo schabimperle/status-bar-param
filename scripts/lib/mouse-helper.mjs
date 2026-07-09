@@ -101,11 +101,16 @@ const HELPER = String.raw`
     let suppressNextEscape = false;
     const HOLD = 1300;     // how long a badge stays after the last press
     const GAP = 1300;      // presses closer than this group into one badge (one action)
+    // Every non-character key gets a glyph. Named keys pair it with the name (the glyph
+    // alone is ambiguous at a glance for ⎋/⇥/⌦); the arrows are unmistakable on their own.
     const SPECIAL = {
-      Enter: '↵ Enter', Escape: 'Esc', Tab: 'Tab', Backspace: '⌫',
+      Enter: '↵ Enter', Escape: '⎋ Esc', Tab: '⇥ Tab', Backspace: '⌫ Backspace',
+      Delete: '⌦ Del', ' ': '␣ Space',
       ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
-      ' ': 'Space', Delete: 'Del',
+      Home: '↖ Home', End: '↘ End', PageUp: '⇞ PgUp', PageDown: '⇟ PgDn',
     };
+    // Modifiers carry the same treatment, so a chord reads "⌃ Ctrl + ⇧ Shift + P".
+    const MOD = { Ctrl: '⌃ Ctrl', Shift: '⇧ Shift', Alt: '⌥ Alt', Cmd: '⌘ Cmd' };
     const exitBadge = (b) => {
       if (!b) return;
       b.classList.add('__exit');           // transition down + fade
@@ -131,10 +136,10 @@ const HELPER = String.raw`
       // Escape that only dismisses a sticky hover between two visible actions).
       if (k === 'Escape' && suppressNextEscape) { suppressNextEscape = false; return; }
       const mods = [];
-      if (e.ctrlKey) mods.push('Ctrl');
-      if (e.altKey) mods.push('Alt');
-      if (e.metaKey) mods.push('Cmd');
-      if (e.shiftKey) mods.push('Shift');
+      if (e.ctrlKey) mods.push(MOD.Ctrl);
+      if (e.altKey) mods.push(MOD.Alt);
+      if (e.metaKey) mods.push(MOD.Cmd);
+      if (e.shiftKey) mods.push(MOD.Shift);
       const special = SPECIAL[k] || (/^F\d+$/.test(k) ? k : null) || (k.length > 1 ? k : null);
       if (mods.length === 0 && !special) return;   // plain typing: ignore
       const label = (mods.length ? mods.join(' + ') + ' + ' : '') + (special || k.toUpperCase());
