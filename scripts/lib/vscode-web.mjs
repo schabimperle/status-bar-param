@@ -33,7 +33,9 @@ export async function waitForWorkbench(page, timeout = 60000) {
 const PALETTE_CHORD = process.platform === 'darwin' ? 'Meta+Shift+KeyP' : 'Control+Shift+KeyP';
 
 /** Open the Command Palette and run a command by its exact visible title. */
-export async function runCommand(page, title) {
+// Pacing knobs let a short clip type faster than the guided demo without changing its
+// rhythm: the defaults are the original values, so existing callers are unaffected.
+export async function runCommand(page, title, { typeDelay = 38, pre = 450, post = 300, tail = 200, step = 110 } = {}) {
     // The chord opens the palette already in command mode ('>' prefilled), so we
     // don't type the '>' ourselves. Reset the value to a bare '>' to drop any
     // remembered query (e.g. a previous command) while staying in command mode.
@@ -41,13 +43,13 @@ export async function runCommand(page, title) {
     const input = page.locator('.quick-input-box input');
     await input.waitFor({ state: 'visible', timeout: 10000 });
     await input.fill('>');
-    await page.waitForTimeout(450); // let the palette register before typing
+    await page.waitForTimeout(pre); // let the palette register before typing
     // last segment is the most distinctive part (e.g. "Add Parameter")
     const needle = (title.includes(':') ? title.split(':').pop().trim() : title).toLowerCase();
-    await page.keyboard.type(title, { delay: 38 }); // readable typing cadence
+    await page.keyboard.type(title, { delay: typeDelay }); // readable typing cadence
     const rows = page.locator('.quick-input-list .monaco-list-row');
     await rows.first().waitFor({ state: 'visible', timeout: 8000 });
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(post);
     // Drive the palette with the KEYBOARD only -- never click a row, so the
     // cursor can't jump up into the picker. Fuzzy ranking can put the exact
     // command below the top, so arrow down to the matching row, then Enter.
@@ -60,9 +62,9 @@ export async function runCommand(page, title) {
     if (idx >= count) idx = 0; // not found among rendered rows: fall back to the top hit
     for (let i = 0; i < idx; i++) {
         await page.keyboard.press('ArrowDown');
-        await page.waitForTimeout(110);
+        await page.waitForTimeout(step);
     }
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(tail);
     await page.keyboard.press('Enter');
 }
 
@@ -101,11 +103,11 @@ export async function typeQuick(page, text, { enter = true, delay = 55 } = {}) {
 }
 
 /** Accept the currently highlighted quick-pick item (first by default). */
-export async function acceptQuick(page, { downs = 0, read = 1300 } = {}) {
+export async function acceptQuick(page, { downs = 0, read = 1300, step = 300 } = {}) {
     await pause(read); // give time to read the question before answering
     for (let i = 0; i < downs; i++) {
         await page.keyboard.press('ArrowDown');
-        await pause(300); // keep ArrowDown + Enter within one keystroke badge
+        await pause(step); // keep ArrowDown + Enter within one keystroke badge
     }
     await pressEnter(page);
 }

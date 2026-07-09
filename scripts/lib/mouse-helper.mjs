@@ -98,6 +98,7 @@ const HELPER = String.raw`
     let curBadge = null;   // the live badge element
     let curGroup = [];     // labels accumulated in the live badge
     let showNextBareSpace = false;
+    let suppressNextEscape = false;
     const HOLD = 1300;     // how long a badge stays after the last press
     const GAP = 1300;      // presses closer than this group into one badge (one action)
     const SPECIAL = {
@@ -126,6 +127,9 @@ const HELPER = String.raw`
       if (!e.ctrlKey && !e.altKey && !e.metaKey &&
           (k === 'Backspace' || k === 'Delete')) return;
       if (!e.ctrlKey && !e.altKey && !e.metaKey && k === ' ' && !showNextBareSpace) return;
+      // opt-out for a functional keypress that shouldn't appear on camera (e.g. an
+      // Escape that only dismisses a sticky hover between two visible actions).
+      if (k === 'Escape' && suppressNextEscape) { suppressNextEscape = false; return; }
       const mods = [];
       if (e.ctrlKey) mods.push('Ctrl');
       if (e.altKey) mods.push('Alt');
@@ -166,6 +170,14 @@ const HELPER = String.raw`
       curBadge = null; curGroup = []; clearTimeout(hideT);
     };
     window.__showNextBareSpace = () => { showNextBareSpace = true; };
+    window.__suppressNextEscape = () => { suppressNextEscape = true; };
+    // Drop any live/lingering keystroke badge and reset its state. Used to wipe the
+    // trailing badge of an OFF-camera warm-up so it doesn't bleed into a clip's first
+    // frames (the badge otherwise lingers HOLD ms after the last press).
+    window.__clearKeys = () => {
+      document.querySelectorAll('.__keys').forEach((b) => b.remove());
+      curBadge = null; curGroup = []; clearTimeout(hideT);
+    };
     window.__hideTitle = () => {
       title.classList.remove('__show');
       // bring the cursor back only after the heading has fully faded out
