@@ -35,7 +35,7 @@ git push --follow-tags            # pushes the commit AND the tag
 Notes:
 
 - **Use `npm version` — don't hand-edit the version.** It bumps `package.json`
-  *and* `package-lock.json` together and creates the matching `vX.Y.Z` tag in one
+  _and_ `package-lock.json` together and creates the matching `vX.Y.Z` tag in one
   step, keeping the project version consistent; the release job's first step
   verifies the tag equals `package.json`'s version. If a version was already
   hand-edited, re-sync the lock before tagging with
@@ -48,6 +48,23 @@ Notes:
   commit passed only those lighter checks can still publish; confirm the full CI
   run is green first.
 - Publishing needs the `VSCE_PAT` and `OVSX_PAT` repository secrets.
+
+## Demo GIFs
+
+The README's GIFs are produced end to end by `scripts/record-headless.sh`, which
+builds the VSIX, launches a throwaway code-server over a copy of
+`demo-workspace/`, drives it in a real browser and records via CDP screencast:
+
+```bash
+scripts/record-headless.sh usage            # short "how it's used" hero GIF
+scripts/record-headless.sh full             # the guided three-part demo
+scripts/record-headless.sh --install full   # also overwrite images/full_demo.gif
+```
+
+Besides `code-server`, it needs `ffmpeg` and `gifsicle` on `PATH` (muxing and GIF
+optimisation), and a plain Chrome exposing a CDP endpoint — `CDP_URL`, defaulting
+to `$CDP_ENDPOINT` and then to `http://127.0.0.1:9222`. The script's header
+comment covers the rest.
 
 ## Checks (must stay green)
 
