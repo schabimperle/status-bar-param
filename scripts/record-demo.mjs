@@ -274,8 +274,10 @@ async function flowUsage(page) {
     await page.keyboard.press('Escape');
     await pause(1500);
     // Run the seeded task, which passes the substituted `${input:target}` to build.sh
-    // -- the payoff. If task enumeration hangs here forever, suspect the CDP browser
-    // rather than code-server or this extension: see CONTRIBUTING.md's "Demo GIFs".
+    // -- the payoff. If task enumeration hangs here forever, suspect the CDP browser:
+    // an automation browser that patches `window.Worker` browser-wide kills VS Code's
+    // web extension host, and the task service then waits on it forever. Everything
+    // else records fine, which makes it look like a code-server or extension bug.
     await runCommand(page, 'Tasks: Run Task', { typeDelay: 20, pre: 260, post: 180, tail: 110, step: 70 });
     const taskRow = page.locator('.quick-input-list .monaco-list-row', { hasText: USAGE_TASK }).first();
     await taskRow.waitFor({ state: 'visible', timeout: 30000 });
@@ -325,6 +327,13 @@ const FLOW_WARMUPS = { usage: warmUsageTasks };
 // repo's demo-workspace ships `tasks: []` (which the `full` flow needs), so seeding
 // it in place would clobber tracked files: refuse, and make the caller stage a copy.
 function seedUsageWorkspace() {
+    // Seeding leaves a configured parameter behind, and the flows share one window and one
+    // FOLDER. `full` opens on the tree view's empty-state "Add Parameter" button, which a
+    // seeded workspace no longer shows -- so it dies seconds in, long after `usage` reported
+    // success. Record the flows in separate runs, each against a fresh workspace copy.
+    if (FLOWS.length > 1) {
+        throw new Error(`the 'usage' flow seeds the workspace and cannot share a run with ${FLOWS.filter((f) => f !== 'usage').join(', ')}; record them one flow at a time`);
+    }
     if (path.resolve(FOLDER) === REPO_WORKSPACE) {
         throw new Error("the 'usage' flow rewrites FOLDER's .vscode/; point FOLDER at a throwaway copy of demo-workspace (record-headless.sh does)");
     }

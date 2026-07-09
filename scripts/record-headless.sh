@@ -9,11 +9,22 @@
 # visible cursor, recording each flow via screencast -> convert to optimized GIFs.
 #
 # Output GIFs land in $OUT_DIR (default /tmp/sbp-demo) for review. Pass --install
-# to also copy them into images/ (demo_<flow>.gif), overwriting the README assets.
+# to also copy them into images/, overwriting the README assets.
 #
-# Requires (already set up on this host): code-server, playwright, ffmpeg,
-# gifsicle, and a reachable CDP browser. The browser loads code-server via the
-# hermes-backend gateway, so BASE_URL uses 192.168.48.1 by default.
+# Requires: code-server, playwright, ffmpeg, gifsicle, and a CDP browser reachable
+# at $CDP_URL (falling back to $CDP_ENDPOINT, then to a local browser).
+#
+# The CDP browser need not run on this host, so it may not be able to reach a
+# loopback code-server. BASE_URL must therefore be an address of this host that is
+# routable from the browser — this host's LAN IP, auto-detected below. code-server
+# consequently listens on the LAN with --auth none for the life of the recording:
+# fine on a trusted network, and the throwaway profile holds nothing.
+#
+# It must also be a PLAIN Chrome. Automation browsers that inject fingerprint-
+# spoofing scripts browser-wide patch `window.Worker` and thereby kill VS Code's
+# web extension host. The symptom is oddly specific: everything records fine except
+# anything touching tasks — the Run Task picker never opens and task enumeration
+# hangs forever.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,9 +32,17 @@ ROOT="$(pwd)"
 
 # --- config (override via env) ----------------------------------------------
 PORT="${PORT:-8741}"
-CDP_URL="${CDP_URL:-http://192.168.48.10:9222}"
-GATEWAY="${GATEWAY:-192.168.48.1}"          # host IP as seen from the CDP browser
-BASE_URL="${BASE_URL:-http://$GATEWAY:$PORT}"
+CDP_URL="${CDP_URL:-${CDP_ENDPOINT:-http://127.0.0.1:9222}}"
+# Only needed to build a default BASE_URL: this host's LAN IP, i.e. how a browser
+# elsewhere on the network must address code-server. An explicit BASE_URL wins.
+if [ -z "${BASE_URL:-}" ]; then
+    HOST_ADDR="${HOST_ADDR:-$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')}"
+    if [ -z "$HOST_ADDR" ]; then
+        echo "!! could not determine this host's LAN IP; set HOST_ADDR or BASE_URL" >&2
+        exit 1
+    fi
+    BASE_URL="http://$HOST_ADDR:$PORT"
+fi
 # 15 matches the screencast capture rate; make-gif.sh's mpdecimate drops the
 # redundant frames, so a higher fps here only bloats the GIF without adding motion
 # 860 wide ~= the GitHub README content column, so it renders crisp there at about
@@ -98,8 +117,11 @@ IFS=',' read -ra LIST <<< "$FLOWS"
 for flow in "${LIST[@]}"; do
     mp4="$OUT_DIR/$flow.mp4"
     [ -f "$mp4" ] || { echo "   !! missing $mp4"; continue; }
-    # the merged guided demo ships as full_demo.gif; single flows as demo_<flow>.gif
-    if [ "$flow" = "full" ]; then name="full_demo"; else name="demo_$flow"; fi
+    # README assets: the short hero clip is usage_demo.gif, the guided walkthrough is
+    # full_demo.gif; every other single flow stays demo_<flow>.gif (repo-only, not shipped)
+    if [ "$flow" = "full" ]; then name="full_demo"
+    elif [ "$flow" = "usage" ]; then name="usage_demo"
+    else name="demo_$flow"; fi
     LOSSY="$GIF_LOSSY" bash "$ROOT/scripts/make-gif.sh" "$mp4" "$OUT_DIR/$name.gif" "$GIF_WIDTH" "$GIF_FPS" >/dev/null
     echo "   $OUT_DIR/$name.gif ($(du -h "$OUT_DIR/$name.gif" | cut -f1))"
     if [ "$INSTALL" = "1" ]; then
