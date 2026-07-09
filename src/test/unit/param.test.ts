@@ -416,7 +416,7 @@ describe('Param.buildTooltip (hover)', () => {
         expect(md.value).toContain('codicon codicon-circle-large-outline');
     });
 
-    it('escapes HTML-sensitive characters in a value cell, leaving theme-icon syntax verbatim', async () => {
+    it('escapes HTML-sensitive characters in a value cell and renders theme-icon syntax as a codicon', async () => {
         const tricky: DisplayableValue = { value: 'raw', displayValue: 'a|b <tag> & "quote" $(zap)' };
         const { item } = setup({ values: [tricky], opts: { canPickMany: true } });
         await flush();
@@ -425,7 +425,39 @@ describe('Param.buildTooltip (hover)', () => {
         expect(md.value).toContain('&lt;tag&gt;');
         expect(md.value).toContain('&amp;');
         expect(md.value).toContain('&quot;quote&quot;');
-        expect(md.value).toContain('$(zap)'); // supportThemeIcons is off, so `$(…)` renders literally
+        expect(md.value).toContain('<span class="codicon codicon-zap"></span>'); // `$(zap)` becomes an icon
+        expect(md.value).not.toContain('$(zap)'); // the raw syntax is consumed, not shown as text
+    });
+
+    it('renders a $(icon) prefix in a display value as a codicon alongside the text', async () => {
+        const labelled: DisplayableValue = { value: 'gcc', displayValue: '$(alert) GCC' };
+        const { item } = setup({ values: [labelled], stored: { [COMMAND]: ['gcc'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('<span class="codicon codicon-alert"></span>');
+        expect(md.value).toContain('GCC');
+        expect(md.value).not.toContain('$(alert)');
+    });
+
+    it('supports a ~modifier on a $(icon~spin) sequence', async () => {
+        const spinning: DisplayableValue = { value: 'busy', displayValue: '$(sync~spin) building' };
+        const { item } = setup({ values: [spinning], stored: { [COMMAND]: ['busy'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('<span class="codicon codicon-sync codicon-modifier-spin"></span>');
+    });
+
+    it('escapes a $(…) sequence whose name leaves the icon charset instead of emitting a span', async () => {
+        // only [A-Za-z0-9-] names are icons (VS Code's own rule). Anything else is literal
+        // text and must go through the escaper, so it can never smuggle markup into the class
+        const attack: DisplayableValue = { value: 'x', displayValue: '$(zap" onmouseover="evil) and $(under_score)' };
+        const { item } = setup({ values: [attack], stored: { [COMMAND]: ['x'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).not.toContain('onmouseover="evil'); // the quote is escaped, the attribute never forms
+        expect(md.value).toContain('$(zap&quot; onmouseover=&quot;evil)');
+        expect(md.value).toContain('$(under_score)'); // literal, no codicon span
+        expect(md.value).not.toContain('codicon-under_score');
     });
 
     it('shows the status-bar item tooltip as a MarkdownString mirrored by getTooltip()', async () => {
@@ -520,7 +552,7 @@ describe('Param.buildTooltip (hover)', () => {
         expect(md.value).toContain('(empty)');
         expect(md.value).not.toContain('codicon codicon-pass-filled');
         expect(md.value).not.toContain('codicon codicon-circle-large-filled');
-        expect(md.value).not.toContain('selected</strong>'); // and no count note either
+        expect(md.value).toContain('myId (0 selected)</h3>'); // blank value doesn't count toward the badge
     });
 
     it('marks the selected value by its canonical value, not a shared display label', async () => {
@@ -535,24 +567,31 @@ describe('Param.buildTooltip (hover)', () => {
         expect((md.value.match(/circle-large-outline/g) ?? []).length).toBe(1);
     });
 
-    it('notes the full selection count when selected values fall outside the truncation window', async () => {
+    it('shows the multi-select selection count in the heading, even when selections span past the window', async () => {
         // multi-select with selections at both ends of a long list: the window can only
-        // show one end, so the hover must state the total rather than understate it
+        // show one end, so the heading badge carries the true total
         const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
         const { item } = setup({ values: many, opts: { canPickMany: true }, stored: { [COMMAND]: ['v0', 'v19'] } });
         await flush();
         const md = item.tooltip as vscode.MarkdownString;
-        expect(md.value).toContain('2 selected');
-        expect(md.value).toContain('some outside this list');
+        expect(md.value).toContain('myId (2 selected)</h3>');
         expect(md.value).not.toContain('>v19</td>'); // v19 is beyond the window
     });
 
-    it('omits the selection-count note when every selected value is visible', async () => {
+    it('shows the heading count for a multi-select whenever selected, not only when some are hidden', async () => {
         const many: DisplayableValue[] = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, displayValue: `v${i}` }));
         const { item } = setup({ values: many, opts: { canPickMany: true }, stored: { [COMMAND]: ['v1', 'v2'] } });
         await flush();
         const md = item.tooltip as vscode.MarkdownString;
-        expect(md.value).not.toContain('selected</strong>'); // both v1 and v2 are within the window
+        expect(md.value).toContain('myId (2 selected)</h3>'); // both within the window, count still shown
+    });
+
+    it('omits the selection-count badge for a single-select param', async () => {
+        const { item } = setup({ values: [A, B], stored: { [COMMAND]: ['a'] } });
+        await flush();
+        const md = item.tooltip as vscode.MarkdownString;
+        expect(md.value).toContain('<h3>myId</h3>'); // plain name, no "(N selected)"
+        expect(md.value).not.toContain('selected)</h3>');
     });
 
     it('reflects a picker-driven refresh via rememberResolvedValues()', async () => {

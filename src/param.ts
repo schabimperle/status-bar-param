@@ -8,8 +8,8 @@ import { DisplayableValue, Options } from './schemas';
 import { ExtensionConfig } from './config';
 
 // Escape user text for raw HTML rendered via MarkdownString.supportHtml, then flatten
-// newlines (table cells can't contain one). No `$(icon)` neutralization: supportThemeIcons
-// is never enabled on this tooltip, so a literal `$(\u2026)` renders verbatim as intended.
+// newlines (table cells can't contain one). `$(icon)` product-icon syntax is handled
+// separately by renderTooltipValue \u2014 this only escapes literal text.
 function escapeTooltipHtml(text: string): string {
     return text
         .replace(/&/g, '&amp;')
@@ -22,6 +22,25 @@ function escapeTooltipHtml(text: string): string {
 
 function iconSpan(icon: string): string {
     return `<span class="codicon codicon-${icon}"></span>`;
+}
+
+// Render a tooltip value: turn VS Code `$(icon)` product-icon syntax into codicon spans
+// (the status bar and picker render these natively; supportThemeIcons is off on this HTML
+// tooltip, so we reproduce them ourselves) and HTML-escape everything around them. The name
+// charset mirrors VS Code's own ThemeIcon expression, so a value renders identically in the
+// bar and in the hover; being restricted to [A-Za-z0-9-] it also keeps the emitted class free
+// of user-controlled markup. See https://code.visualstudio.com/api/references/icons-in-labels.
+function renderTooltipValue(text: string): string {
+    const iconPattern = /\$\(([A-Za-z0-9-]+)(?:~([A-Za-z0-9-]+))?\)/g;
+    let html = '';
+    let last = 0;
+    for (let match = iconPattern.exec(text); match !== null; match = iconPattern.exec(text)) {
+        html += escapeTooltipHtml(text.slice(last, match.index));
+        const modifier = match[2] ? ` codicon-modifier-${match[2]}` : '';
+        html += `<span class="codicon codicon-${match[1]}${modifier}"></span>`;
+        last = match.index + match[0].length;
+    }
+    return html + escapeTooltipHtml(text.slice(last));
 }
 
 function indentedIconSpan(icon: string): string {
@@ -278,19 +297,18 @@ export class Param {
         const selectedRaw = this.loadSelectedValues() ?? [];
         const isSelected = (value: DisplayableValue) => value.displayValue.trim() !== '' && selectedRaw.includes(value.value);
         const values = this.lastResolvedValues;
+        const multi = this.opts.canPickMany === true;
+        // a multi-select carries its selection count in the heading, e.g. "id (3 selected)",
+        // so the total stays visible even when the value list is truncated or the active
+        // rows are scrolled off. Count against the resolved list when we have one; otherwise
+        // fall back to the stored selection (a blank/whitespace value never counts, matching
+        // the status bar). Single-select needs no badge — the one filled marker says it all.
+        const activeCount = values && values.length > 0 ? values.filter(isSelected).length : selectedRaw.filter((value) => value.trim() !== '').length;
+        const countBadge = multi ? ` (${activeCount} selected)` : '';
         if (values && values.length > 0) {
-            const multi = this.opts.canPickMany === true;
-            const activeCount = values.filter(isSelected).length;
             const activeIndex = values.findIndex(isSelected);
             const start = activeIndex >= Param.MAX_TOOLTIP_VALUES ? Math.min(activeIndex, Math.max(0, values.length - Param.MAX_TOOLTIP_VALUES)) : 0;
             const shown = values.slice(start, start + Param.MAX_TOOLTIP_VALUES);
-            // the window can't fit every selection of a widely-spread multi-select; note the
-            // full count when some selected values fall outside it, so the visible markers
-            // don't understate the selection (the picker still lists all of them).
-            const selectedShown = shown.filter(isSelected).length;
-            if (multi && activeCount > selectedShown) {
-                rows.push(`<tr><td></td><td><strong>${activeCount} selected</strong>, some outside this list</td></tr>`);
-            }
             if (start > 0) {
                 rows.push(`<tr><td></td><td><em>…${start} more above</em></td></tr>`);
             }
@@ -305,7 +323,7 @@ export class Param {
                 // a shell command can emit a blank line; show an explicit placeholder
                 // rather than an invisible, confusing empty row. The placeholder is a
                 // fixed, safe literal, so only real user values are run through the escaper.
-                const cell = value.displayValue.trim() === '' ? '(empty)' : escapeTooltipHtml(value.displayValue);
+                const cell = value.displayValue.trim() === '' ? '(empty)' : renderTooltipValue(value.displayValue);
                 rows.push(`<tr><td>${indentedIconSpan(marker)}</td><td>${cell}</td></tr>`);
             }
             const remaining = values.length - start - shown.length;
@@ -316,14 +334,14 @@ export class Param {
         } else if (active.length > 0) {
             // no resolvable value list (command param untrusted / failing / not yet run):
             // still surface the current selection so the hover isn't empty
-            rows.push(`<tr><td></td><td>Selected: ${escapeTooltipHtml(active.join(' '))}</td></tr>`);
+            rows.push(`<tr><td></td><td>Selected: ${renderTooltipValue(active.join(' '))}</td></tr>`);
         } else {
             rows.push('<tr><td></td><td><em>No selection</em></td></tr>');
         }
         // Minimal bottom padding inside VS Code's fixed hover margins.
         rows.push('<tr><td></td><td></td></tr>');
         md.appendMarkdown(
-            `<table width="100%"><tbody><tr><td><h3>${escapeTooltipHtml(this.id)}</h3></td><td align="right"><h3>&nbsp;&nbsp;&nbsp;${iconSpan(this.getIcon().id)}</h3></td></tr></tbody></table><table><tbody>${rows.join('')}</tbody></table>`,
+            `<table width="100%"><tbody><tr><td><h3>${escapeTooltipHtml(this.id)}${countBadge}</h3></td><td align="right"><h3>&nbsp;&nbsp;&nbsp;${iconSpan(this.getIcon().id)}</h3></td></tr></tbody></table><table><tbody>${rows.join('')}</tbody></table>`,
         );
         return md;
     }

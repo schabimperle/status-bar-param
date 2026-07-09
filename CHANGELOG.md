@@ -6,7 +6,8 @@ All notable changes to the "status-bar-param" extension will be documented in th
 
 ### Added
 
-- Rich status-bar and tree hover popups for parameters, showing the parameter name, type icon, resolved values, and selection markers. Long value lists are truncated while keeping the active selection in view, and a multi-select whose selection reaches past the visible list notes how many values are selected in total.
+- Rich status-bar and tree hover popups for parameters, showing the parameter name, type icon, resolved values, and selection markers. Long value lists are truncated while keeping the active selection in view, and a multi-select shows its selection count next to the parameter name.
+- `displayValue`s may embed VS Code product icons via the `$(icon-name)` syntax (including `~spin` modifiers); they now render in the hover popups too, matching the status bar and selection picker.
 
 ### Changed
 
