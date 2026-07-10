@@ -62,12 +62,19 @@ for a in "$@"; do
     esac
 done
 FLOWS="${FLOWS_ARG:-full}"
+IFS=',' read -ra LIST <<< "$FLOWS"
 
 # --- scratch dirs + cleanup --------------------------------------------------
 CS_DATA="$(mktemp -d /tmp/cs-data.XXXX)"
 CS_EXT="$(mktemp -d /tmp/cs-ext.XXXX)"
 WORKROOT="$(mktemp -d /tmp/sbp-work.XXXX)"
-WORK="$WORKROOT/demo-workspace"           # basename must stay 'demo-workspace'
+# Each flow records against its OWN workspace copy, at its own path. A flow may leave the
+# workspace changed -- `usage` seeds a configured parameter, `full` writes one through the
+# wizard -- and a later flow starting from that state records the wrong thing (`full` opens
+# on the tree view's empty-state button, which a seeded workspace no longer shows). Distinct
+# paths also keep code-server's per-folder state (open editors, …) from leaking across flows.
+# The basename must stay 'demo-workspace': it shows in the explorer and the window title.
+flow_workspace() { echo "$WORKROOT/$1/demo-workspace"; }
 CS_PID=""
 cleanup() {
     [ -n "$CS_PID" ] && kill "$CS_PID" 2>/dev/null || true
@@ -83,13 +90,19 @@ echo "   $VSIX"
 echo ">> installing extension into clean code-server profile"
 code-server --install-extension "$VSIX" --extensions-dir "$CS_EXT" --user-data-dir "$CS_DATA" >/dev/null 2>&1
 
-echo ">> staging throwaway workspace copy"
-cp -r "$ROOT/demo-workspace" "$WORK"
+echo ">> staging a throwaway workspace copy per flow"
+for flow in "${LIST[@]}"; do
+    W="$(flow_workspace "$flow")"
+    mkdir -p "$(dirname "$W")"
+    cp -r "$ROOT/demo-workspace" "$W"
+    echo "   $flow -> $W"
+done
 
+# code-server needs a folder to open; each recording navigates to its own via ?folder=
 echo ">> launching code-server on :$PORT"
 code-server --bind-addr "0.0.0.0:$PORT" --auth none \
     --disable-telemetry --disable-update-check --disable-workspace-trust \
-    --user-data-dir "$CS_DATA" --extensions-dir "$CS_EXT" "$WORK" \
+    --user-data-dir "$CS_DATA" --extensions-dir "$CS_EXT" "$(flow_workspace "${LIST[0]}")" \
     >/tmp/codeserver.log 2>&1 &
 CS_PID=$!
 
@@ -109,11 +122,13 @@ echo "   code-server ready (pid $CS_PID)"
 
 echo ">> recording flows: $FLOWS"
 mkdir -p "$OUT_DIR"
-CDP_URL="$CDP_URL" BASE_URL="$BASE_URL" FOLDER="$WORK" OUT_DIR="$OUT_DIR" FLOWS="$FLOWS" \
-    node "$ROOT/scripts/record-demo.mjs"
+# one recorder run per flow: a fresh page and a fresh workspace, so flows cannot bleed
+for flow in "${LIST[@]}"; do
+    CDP_URL="$CDP_URL" BASE_URL="$BASE_URL" FOLDER="$(flow_workspace "$flow")" OUT_DIR="$OUT_DIR" FLOWS="$flow" \
+        node "$ROOT/scripts/record-demo.mjs"
+done
 
 echo ">> converting to GIF"
-IFS=',' read -ra LIST <<< "$FLOWS"
 for flow in "${LIST[@]}"; do
     mp4="$OUT_DIR/$flow.mp4"
     [ -f "$mp4" ] || { echo "   !! missing $mp4"; continue; }

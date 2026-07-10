@@ -13,9 +13,24 @@ export const NAV = Number(process.env.NAV_PACE || 1);
 /** A navigation pause that scales with NAV (use for "settle" waits, not typing). */
 export const pause = (ms) => sleep(ms * NAV);
 
-/** A short, deliberate break before confirming, so the filled state is readable. */
-export async function pressEnter(page) {
-    await pause(700);
+/**
+ * Retire the live keystroke badge, so the next press opens a fresh one. Each helper below
+ * calls this before its FIRST press: a helper is one gesture (answer this prompt, run this
+ * command), and a gesture is one badge. Without it, gestures whose presses happen to fall
+ * within the badge's ~1.3s grouping window merge into a single run-on badge — three separate
+ * value confirmations rendering as "↵ Enter ↵ Enter ↵ Enter" on one line, rather than each
+ * badge retiring downward as the next replaces it.
+ */
+export const breakKeys = (page) => page.evaluate(() => window.__breakKeys && window.__breakKeys());
+
+/**
+ * A short, deliberate break before confirming, so the filled state is readable: just long
+ * enough to see WHAT is being confirmed (the highlighted row, the typed text). Callers that
+ * need the prompt read first already held for that, so this stays short — it used to be
+ * 700ms and double-counted their hold on every single Enter.
+ */
+export async function pressEnter(page, { pre = 300 } = {}) {
+    await pause(pre);
     await page.keyboard.press('Enter');
 }
 
@@ -33,12 +48,14 @@ export async function waitForWorkbench(page, timeout = 60000) {
 const PALETTE_CHORD = process.platform === 'darwin' ? 'Meta+Shift+KeyP' : 'Control+Shift+KeyP';
 
 /** Open the Command Palette and run a command by its exact visible title. */
-// Pacing knobs let a short clip type faster than the guided demo without changing its
-// rhythm: the defaults are the original values, so existing callers are unaffected.
-export async function runCommand(page, title, { typeDelay = 38, pre = 450, post = 300, tail = 200, step = 110 } = {}) {
+// Pacing knobs let a clip deviate from the default rhythm where it needs to. The defaults
+// aim at "legible but never idle": typing is fast enough to skim, and only the moments that
+// must be READ get a hold (see BEAT in record-demo.mjs).
+export async function runCommand(page, title, { typeDelay = 38, pre = 380, post = 260, tail = 180, step = 90 } = {}) {
     // The chord opens the palette already in command mode ('>' prefilled), so we
     // don't type the '>' ourselves. Reset the value to a bare '>' to drop any
     // remembered query (e.g. a previous command) while staying in command mode.
+    await breakKeys(page); // the chord starts a new gesture, whatever preceded it
     await page.keyboard.press(PALETTE_CHORD);
     const input = page.locator('.quick-input-box input');
     await input.waitFor({ state: 'visible', timeout: 10000 });
@@ -65,6 +82,8 @@ export async function runCommand(page, title, { typeDelay = 38, pre = 450, post 
         await page.waitForTimeout(step);
     }
     await page.waitForTimeout(tail);
+    // opening the palette and confirming the command are two gestures, two badges
+    await breakKeys(page);
     await page.keyboard.press('Enter');
 }
 
@@ -93,17 +112,20 @@ export async function waitForPrompt(page, substr, timeout = 10000) {
 }
 
 /** Type into the quick-input box with human cadence, then optionally Enter. */
-export async function typeQuick(page, text, { enter = true, delay = 55 } = {}) {
+export async function typeQuick(page, text, { enter = true, delay = 46, read = 560 } = {}) {
     const input = page.locator('.quick-input-box input');
     await input.waitFor({ state: 'visible', timeout: 10000 });
-    await pause(750); // let the prompt be read before text appears
+    await pause(read); // let the prompt be read before text appears
     await page.keyboard.type(text, { delay });
+    // typed characters raise no badge, so the previous answer's Enter is still the live one
+    if (enter) await breakKeys(page);
     if (enter) await pressEnter(page);
     else await pause(300);
 }
 
 /** Accept the currently highlighted quick-pick item (first by default). */
-export async function acceptQuick(page, { downs = 0, read = 1300, step = 300 } = {}) {
+export async function acceptQuick(page, { downs = 0, read = 950, step = 180 } = {}) {
+    await breakKeys(page); // this answer is its own gesture: ArrowDowns + Enter, one badge
     await pause(read); // give time to read the question before answering
     for (let i = 0; i < downs; i++) {
         await page.keyboard.press('ArrowDown');
@@ -113,11 +135,11 @@ export async function acceptQuick(page, { downs = 0, read = 1300, step = 300 } =
 }
 
 /** Show a numbered full-screen title card, hold, then fade it out. */
-export async function showTitle(page, num, text, { hold = 1500 } = {}) {
+export async function showTitle(page, num, text, { hold = 1400 } = {}) {
     await page.evaluate(([n, t]) => window.__showTitle && window.__showTitle(n, t), [String(num), text]);
-    await sleep(400 + hold); // fade-in + hold
+    await sleep(380 + hold); // fade-in + hold
     await page.evaluate(() => window.__hideTitle && window.__hideTitle());
-    await sleep(450); // fade-out
+    await sleep(420); // fade-out
 }
 
 /** Eased, time-based mouse glide so motion reads naturally (scaled by NAV). */
@@ -135,7 +157,7 @@ export async function smoothMove(page, x, y, durMs = 520) {
 }
 
 /** Glide the cursor to an element's centre and click it (visible cursor + ripple). */
-export async function glideClick(page, locator, { dur = 520, settle = 550 } = {}) {
+export async function glideClick(page, locator, { dur = 520, settle = 300 } = {}) {
     await locator.waitFor({ state: 'visible', timeout: 12000 });
     const b = await locator.boundingBox();
     if (!b) throw new Error('glideClick: element has no bounding box');
@@ -202,14 +224,18 @@ export class Recorder {
         console.log(`   [rec] muxing ${this.frames.length} frames -> ${outMp4}`);
         if (this.frames.length < 2) return null;
 
-        // Build a concat list with per-frame durations from frame timestamps.
+        // Build a concat list with per-frame durations from frame timestamps, so the clip
+        // plays back at the speed it was driven at. The floor only guards a zero/negative
+        // delta (identical timestamps): a 1/30s floor looks harmless but silently STRETCHES
+        // every burst faster than 30fps -- and Chrome screencasts motion at up to ~60fps, so
+        // cursor glides and typing were replayed at half speed, inflating a 40s take to 52s.
         const lines = ['ffconcat version 1.0'];
         for (let i = 0; i < this.frames.length; i++) {
             const cur = this.frames[i];
             const next = this.frames[i + 1];
-            const dur = next ? Math.max(1 / 30, next.t - cur.t) : 0.7; // tail hold
+            const dur = next ? Math.max(1 / 240, next.t - cur.t) : 0.7; // tail hold
             lines.push(`file '${path.resolve(cur.file)}'`);
-            lines.push(`duration ${dur.toFixed(3)}`);
+            lines.push(`duration ${dur.toFixed(4)}`);
         }
         // repeat last frame so its duration is honored
         lines.push(`file '${path.resolve(this.frames.at(-1).file)}'`);

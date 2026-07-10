@@ -20,6 +20,12 @@ const HELPER = String.raw`
          terminal carets are frozen via the demo-workspace settings). Purely visual
          — typing/filtering still works; the typed text appears as before. */
       * { caret-color: transparent !important; }
+      /* Suppress VS Code hover tooltips for the whole recording. code-server pops them almost
+         instantly (real VS Code waits), so the status-bar item's hover flashes the moment the
+         cursor approaches it to click -- reading as an accident. The demo never relies on a
+         hover, so hide the widget outright; this kills both the approach flash and the sticky
+         focus-hover after the value picker closes. */
+      .monaco-hover { display: none !important; }
       .__cursor {
         position: fixed; top: 0; left: 0; z-index: 2147483647;
         width: 20px; height: 28px; margin: 0; pointer-events: none;
@@ -176,6 +182,13 @@ const HELPER = String.raw`
     };
     window.__showNextBareSpace = () => { showNextBareSpace = true; };
     window.__suppressNextEscape = () => { suppressNextEscape = true; };
+    // Close the live badge so the NEXT press starts a fresh one, even if it lands inside
+    // the GAP window. Presses close in time are one gesture by default, but two picker
+    // confirmations in a row are two separate answers and read wrong sharing a badge.
+    window.__breakKeys = () => {
+      exitBadge(curBadge);                 // retire it visibly (slide down + fade)
+      curBadge = null; curGroup = []; clearTimeout(hideT);
+    };
     // Drop any live/lingering keystroke badge and reset its state. Used to wipe the
     // trailing badge of an OFF-camera warm-up so it doesn't bleed into a clip's first
     // frames (the badge otherwise lingers HOLD ms after the last press).
