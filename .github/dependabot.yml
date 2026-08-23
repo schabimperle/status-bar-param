@@ -3,9 +3,15 @@ updates:
   # keep dev/runtime npm dependencies patched
   - package-ecosystem: npm
     directory: "/"
+    # PRs go to develop, not the default branch. master is the published
+    # Marketplace version (see CONTRIBUTING.md); without this, Dependabot
+    # targets the default branch and lands dependency work straight on it.
+    target-branch: develop
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    # 5 was too tight: six bumps were open at once and the sixth crowded out a
+    # security update, which then never got a PR at all.
+    open-pull-requests-limit: 10
     ignore:
       # @types/vscode must not exceed engines.vscode (^1.68.0), or `vsce package`
       # fails with "@types/vscode > engines.vscode". Keep it on the 1.68.x line;
@@ -38,9 +44,16 @@ updates:
       # batch low-risk dev tooling bumps into one PR to reduce noise
       dev-dependencies:
         dependency-type: development
+        # typescript stays out of the batch. A grouped PR is all-or-nothing: when
+        # the compiler bump is the one npm can't resolve, it takes the other eight
+        # bumps down with it and the whole group has to be rebuilt by hand. On its
+        # own it is one PR to close.
+        exclude-patterns:
+          - "typescript"
 
   # keep the GitHub Actions used by the workflows up to date
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: develop
     schedule:
       interval: weekly
