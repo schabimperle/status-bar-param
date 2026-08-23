@@ -2,6 +2,15 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [1.10.1]
+
+### Internal
+
+- Updated runtime and dev dependencies via Dependabot: `fast-uri`, `brace-expansion`, `linkify-it`, `undici`, `actions/setup-node`, `@typescript-eslint/eslint-plugin`, `esbuild`, `eslint`, `ovsx`, `playwright`, `prettier`, and `ts-jest`.
+- Bumped `js-yaml` to 4.3.1 and 3.15.1, clearing the quadratic-complexity advisories against the copies the build tooling pulls in, and pinned both lines with `overrides` so they cannot be re-resolved away.
+- Held `typescript` on the 6.x line and told Dependabot to skip its major updates. `@typescript-eslint` 8.x peers on `typescript` `>=4.8.4 <6.1.0` and `ts-jest` 29.x on `>=4.3 <7`, so a 7.x bump leaves `npm ci` with no resolution and every check fails before it runs. The ignore comes off once both peer on 7.
+- Fixed Dependabot auto-merge, which had failed on every PR: it asked for a merge commit against a branch that requires linear history. It now squashes, holds majors back for review, and opens its PRs against `develop`.
+
 ## [1.10.0]
 
 ### Added
