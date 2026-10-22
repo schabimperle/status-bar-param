@@ -27,7 +27,7 @@ jobs:
       # attacker-shaped input on pull_request_target.
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
 
       # Squash, not merge: the `master` ruleset requires linear history, and a
       # merge commit is rejected with "Merge commits are not allowed on this
