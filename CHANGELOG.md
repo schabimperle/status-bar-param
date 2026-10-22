@@ -2,6 +2,17 @@
 
 All notable changes to the "status-bar-param" extension will be documented in this file.
 
+## [1.10.2]
+
+### Security
+
+- Bundled `fast-uri` (used through `ajv` to validate the configuration) goes from 3.1.5 to 3.1.8, fixing GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g and GHSA-hrr3-gc8f-f4qj. These Dependabot security updates had landed on `master` only and missed 1.10.1.
+
+### Internal
+
+- Updated dev dependencies via Dependabot: `@vscode/vsce` 4, `@typescript-eslint`, `eslint`, `jest`, `ovsx`, `playwright`, `prettier`, `ts-jest`, `dependabot/fetch-metadata` 3, plus the security bumps from `master` (`handlebars`, `brace-expansion`, `browserslist`, `js-yaml`, `qs`).
+- `develop` is now the default branch, so security updates land where releases are cut; the release workflow now runs the full CI on the tagged commit before publishing, fast-forwards `master` to each tag and pins the Marketplace README's links to it.
+
 ## [1.10.1]
 
 ### Internal
