@@ -23,9 +23,9 @@ Development Host with the extension loaded.
 ## Releasing
 
 Releases are tag-driven: pushing a `v*` tag triggers
-`.github/workflows/release.yml`, which re-runs the release-critical checks
-(`lint`, `format:check`, `test:coverage`, `vsce package`), then publishes the
-packaged `.vsix` to the VS Marketplace and Open VSX and creates a GitHub Release.
+`.github/workflows/release.yml`, which runs the full CI on the tagged commit,
+then publishes the packaged `.vsix` to the VS Marketplace and Open VSX, creates a
+GitHub Release and fast-forwards `master` to the tag.
 
 To cut a release, from `develop`:
 
@@ -43,12 +43,9 @@ Notes:
   hand-edited, re-sync the lock before tagging with
   `npm version <x.y.z> --allow-same-version --no-git-tag-version`, then commit
   both files and tag manually.
-- **Make sure the branch's CI is green before tagging.** The release job re-runs
-  only the fast gates (`lint`, `format:check`, `test:coverage`, `vsce package`)
-  and the tag/version check — it does **not** re-run the integration or
-  remote-smoke jobs, nor does it check the branch's CI status. So a tag whose
-  commit passed only those lighter checks can still publish; confirm the full CI
-  run is green first.
+- The release workflow runs the full CI (`ci.yml`, every OS plus integration,
+  remote smoke and packaging) on the tagged commit and publishes only if all of
+  it passes, then fast-forwards `master` to the tag.
 - Publishing needs the `VSCE_PAT` and `OVSX_PAT` repository secrets.
 
 ## Demo GIFs

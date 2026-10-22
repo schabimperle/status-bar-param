@@ -16,30 +16,15 @@ permissions:
   contents: write # required to create the GitHub Release
 
 jobs:
-  # Advanced CI gate for the release: the real-host integration smoke test under
-  # xvfb (it downloads a VS Code build, so the tiered ci.yml skips it on develop).
-  # The release job needs this to pass, so a tag can't publish on green unit tests
-  # alone — this is the "advanced CI at the boundary" the tag triggers.
-  integration:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24.x
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Integration smoke tests
-        run: xvfb-run -a npm run test:integration
+  # Publish gate: the full CI (all OSes, integration, remote, package) on exactly
+  # the tagged commit, so a tag cannot publish ahead of a red matrix.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   release:
-    needs: integration
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -112,6 +97,8 @@ jobs:
 
   # master is the published version and only ever moves to a release. A plain
   # (non-force) push fails loudly if master has diverged instead of overwriting it.
+  # master's ruleset has no required checks on purpose (`ci` above is the gate,
+  # and its contexts are named `ci / …`); it blocks force pushes and deletion.
   promote:
     needs: release
     runs-on: ubuntu-latest
