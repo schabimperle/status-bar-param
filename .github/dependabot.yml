@@ -3,9 +3,9 @@ updates:
   # keep dev/runtime npm dependencies patched
   - package-ecosystem: npm
     directory: "/"
-    # PRs go to develop, not the default branch. master is the published
-    # Marketplace version (see CONTRIBUTING.md); without this, Dependabot
-    # targets the default branch and lands dependency work straight on it.
+    # develop is also the default branch, which is where security updates go
+    # regardless of target-branch (they landed on master for weeks while it
+    # was the default). Keep version updates pinned there explicitly too.
     target-branch: develop
     schedule:
       interval: weekly

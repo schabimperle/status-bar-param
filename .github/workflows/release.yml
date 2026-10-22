@@ -79,8 +79,17 @@ jobs:
       - name: Test
         run: npm run test:coverage # headless Jest unit tests + coverage ratchet, no display needed
 
+      # vsce rewrites the README's relative links to the repo's default branch
+      # (raw/HEAD), which is develop: the Marketplace page would show unreleased
+      # demo GIFs and docs. Pin them to the released tag instead.
       - name: Package extension
-        run: npx @vscode/vsce package --out extension.vsix
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: >-
+          npx @vscode/vsce package --out extension.vsix
+          --baseContentUrl "$REPO_URL/blob/$TAG"
+          --baseImagesUrl "$REPO_URL/raw/$TAG"
 
       - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce publish --packagePath extension.vsix
@@ -100,3 +109,17 @@ jobs:
           # containing shell metacharacters cannot inject commands.
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" extension.vsix --title "$TAG" --generate-notes
+
+  # master is the published version and only ever moves to a release. A plain
+  # (non-force) push fails loudly if master has diverged instead of overwriting it.
+  promote:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward master to the release
+        run: git push origin "$GITHUB_SHA:refs/heads/master"

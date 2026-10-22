@@ -15,8 +15,10 @@ Development Host with the extension loaded.
 
 ## Branch model
 
-- `master` — the published Marketplace version. Don't commit here directly.
-- `develop` — active development. Branch from it and open PRs against it.
+- `develop` — the default branch and active development. Branch from it and
+  open PRs against it; Dependabot (including security updates) lands here too.
+- `master` — the published Marketplace version. Never commit here: the release
+  workflow fast-forwards it to each release tag.
 
 ## Releasing
 
@@ -25,7 +27,7 @@ Releases are tag-driven: pushing a `v*` tag triggers
 (`lint`, `format:check`, `test:coverage`, `vsce package`), then publishes the
 packaged `.vsix` to the VS Marketplace and Open VSX and creates a GitHub Release.
 
-To cut a release, from the branch you want to ship:
+To cut a release, from `develop`:
 
 ```bash
 npm version <patch|minor|major>   # bumps package.json + package-lock.json, commits, tags vX.Y.Z
